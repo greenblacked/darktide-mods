@@ -487,6 +487,11 @@ Every test builds its own staging folder, fake game install and mod archives und
 `$env:TEMP`. Nothing touches your real mods, your real game folder, or the network,
 so the suite is safe to run at any time.
 
+The suite needs **Windows**: the tools shell out to `robocopy`, read `$env:USERPROFILE`
+and the Steam registry keys, and build `\`-separated paths, and the tests assert exactly
+that. On Linux or macOS `Invoke-Tests.ps1` says so and runs the cross-platform repository
+validator instead; `-AllowNonWindows` forces the Pester run if you want to see it fail.
+
 What it covers:
 
 | Area | Checks |
