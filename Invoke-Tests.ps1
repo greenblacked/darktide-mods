@@ -18,6 +18,10 @@
 .PARAMETER SkipValidator
     Run the Pester suite only, without Test-Modpack.ps1.
 
+.PARAMETER AllowNonWindows
+    Run the Pester suite anyway on Linux or macOS. Expect large numbers of failures:
+    the tools are Windows-only and the suite asserts Windows behaviour.
+
 .EXAMPLE
     .\Invoke-Tests.ps1
 
@@ -30,11 +34,27 @@ param(
     [string] $Path,
     [ValidateSet('None', 'Normal', 'Detailed', 'Diagnostic')]
     [string] $Output = 'Normal',
-    [switch] $SkipValidator
+    [switch] $SkipValidator,
+    [switch] $AllowNonWindows
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+# The tools are Windows-only: they shell out to robocopy, read $env:USERPROFILE and the
+# Steam registry, and build '\'-separated paths. The suite asserts exactly that, so on
+# Linux or macOS it fails in ways that say nothing about the code. The validator, on the
+# other hand, is pure parsing and JSON - it runs anywhere, so offer that instead.
+$onWindows = ($PSVersionTable.PSEdition -eq 'Desktop') -or $IsWindows
+if (-not $onWindows -and -not $AllowNonWindows) {
+    Write-Host "The Pester suite needs Windows - $($PSVersionTable.Platform) cannot run robocopy, the Steam registry keys or '\'-separated paths." -ForegroundColor Yellow
+    Write-Host 'Use -AllowNonWindows to run it anyway, or push the branch and let CI run it on windows-latest.' -ForegroundColor Yellow
+    if ($SkipValidator) { exit 1 }
+    Write-Host ''
+    Write-Host '--- Repository validator (cross-platform) ---' -ForegroundColor Cyan
+    & (Join-Path $PSScriptRoot 'Test-Modpack.ps1')
+    exit $LASTEXITCODE
+}
 
 $pester = Get-Module -ListAvailable -Name Pester |
           Where-Object { $_.Version.Major -ge 5 } |
