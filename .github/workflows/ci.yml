@@ -119,6 +119,7 @@ jobs:
             'Export-DarktideLoadout.ps1',
             'Import-DarktideLoadout.ps1',
             'Initialize-DarktideConfig.ps1',
+            'Install-DarktideLoader.ps1',
             'Test-Modpack.ps1',
             'config.example.json',
             'mods-map.json',
