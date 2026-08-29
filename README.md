@@ -504,13 +504,23 @@ What it covers:
 
 ## CI
 
-Manual only — `workflow_dispatch`, nothing fires on push.
+`validate` runs **automatically on every push** (any branch) and on pull requests to `main`.
+The two jobs that publish something stay manual — they are gated on the event being a
+`workflow_dispatch`, not merely on the task input, so a push can never trigger a release.
 
-| Task | Runs on | Does |
-|---|---|---|
-| `validate` | windows-latest | PSScriptAnalyzer, AST parse of every script, JSON validity, lockfile consistency, and hygiene checks (no committed mod files, no leaked API key, `config.json` untracked). |
-| `release` | windows-latest | Validate, package the allow-listed files, publish a GitHub Release with a SHA-256 and a generated mod table. |
-| `refresh-lock` | ubuntu-latest | Query the Nexus API for each mapped mod's current version and open a PR with the diff. Metadata only — needs the `NEXUS_API_KEY` secret; a free account is enough. |
+| Task | Trigger | Runs on | Does |
+|---|---|---|---|
+| `validate` | push, PR, manual | windows-latest | The 153-test Pester suite, then PSScriptAnalyzer, AST parse of every script, JSON validity, lockfile consistency, and hygiene checks (no committed mod files, no leaked API key, `config.json` untracked). |
+| `release` | manual only | windows-latest | Validate, package the allow-listed files, publish a GitHub Release with a SHA-256 and a generated mod table. |
+| `refresh-lock` | manual only | ubuntu-latest | Query the Nexus API for each mapped mod's current version and open a PR with the diff. Metadata only — needs the `NEXUS_API_KEY` secret; a free account is enough. |
+
+Pushing again while a run is in flight cancels the older one (`concurrency`), so only the
+newest commit on a branch is checked. Manual runs are never cancelled — a half-finished
+release is worse than a wasted minute.
+
+```powershell
+gh workflow run CI -f task=release -f version=1.0.0   # the manual ones
+```
 
 Run the validator locally the same way CI does:
 
