@@ -1,7 +1,7 @@
 # darktide-mods
 
 [![CI](https://github.com/greenblacked/darktide-mods/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/greenblacked/darktide-mods/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-81%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-126%20passing-brightgreen)](tests/)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%20%7C%207-5391FE)](https://learn.microsoft.com/powershell/)
 [![License: MIT](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
@@ -66,12 +66,43 @@ Get-ChildItem *.ps1 | Unblock-File
 If your workplace policy forbids changing the execution policy, run each command with an
 explicit bypass instead: `powershell -ExecutionPolicy Bypass -File .\darktide.ps1 status`.
 
-### 3. Tell it where things are
+### 3. Let it find your game
+
+```powershell
+.\darktide.ps1 init
+```
+
+This works out where Darktide is installed instead of asking you. It reads Steam's install
+path from the registry, walks **every** Steam library in `libraryfolders.vdf` (games are
+often on a different drive from Steam itself), reads Darktide's own Steam app manifest
+(`appmanifest_1361210.acf`) for the exact folder name, and verifies each candidate by
+looking for real game files before writing anything.
+
+```
+Looking for Darktide...
+  found: D:\Games\Steam\steamapps\common\Warhammer 40,000 DARKTIDE   [Steam app manifest]
+Game folder: D:\Games\Steam\steamapps\common\Warhammer 40,000 DARKTIDE
+Staging   : D:\Darktide\mods
+Downloads : C:\Users\you\Downloads
+Wrote config.json
+```
+
+It never overwrites an existing `config.json` without `-Force`. If the game isn't found —
+a non-Steam copy, say — point at it directly:
+
+```powershell
+.\darktide.ps1 init -GamePath 'D:\Games\...\Warhammer 40,000 DARKTIDE'
+```
+
+<details>
+<summary>Or write the config by hand</summary>
 
 ```powershell
 Copy-Item config.example.json config.json
 notepad config.json
 ```
+
+</details>
 
 | Key | What to put in it |
 |---|---|
@@ -181,6 +212,7 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 
 | Verb | What it does |
 |---|---|
+| `init` | Find your Darktide install automatically and write `config.json`. |
 | `status` | Staged vs deployed, drift, loader state, backup sets. Read-only. |
 | `check` | Ask Nexus what's outdated. Needs an API key. Read-only. |
 | `update` | Install newer archives from your download folder into staging. |
@@ -189,6 +221,8 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 | `rollback` | Undo the last staging install. |
 | `restore` | Undo the last deploy to the game folder. |
 | `lock` | Regenerate `darktide-modpack.lock.json` from what's installed. |
+| `export` | Zip your whole loadout into one file, as a personal backup. |
+| `import` | Restore a loadout zip into staging and deploy it, in one step. |
 
 ### Useful switches
 
@@ -198,6 +232,50 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 .\darktide.ps1 deploy -Apply -InstallLoader -RunToggle      # fresh install / after a game patch
 .\darktide.ps1 update -Apply -Force -Only NumericUI         # reinstall or downgrade one mod
 ```
+
+---
+
+## Moving your loadout to another machine
+
+Two commands on the old machine, two on the new one. Nothing is moved by hand, and the game
+folder is found for you.
+
+**On the machine that has the loadout:**
+
+```powershell
+.\darktide.ps1 sync -Apply           # make sure staging holds the newest versions
+.\darktide.ps1 export -Apply         # -> D:\Darktide\darktide-loadout-<date>.zip
+```
+
+Copy that one zip to the new machine (USB, network share, your own cloud storage).
+
+**On the new machine:**
+
+```powershell
+git clone https://github.com/greenblacked/darktide-mods.git
+cd darktide-mods
+Get-ChildItem *.ps1 | Unblock-File
+
+.\darktide.ps1 init                                      # finds the game by itself
+.\darktide.ps1 import -Path 'E:\darktide-loadout-20260829.zip' -Apply
+```
+
+`import` unpacks into staging and deploys to the game folder in the same run — you never
+move a folder yourself. It extracts to a temporary directory first and refuses any archive
+entry that tries to escape the destination, so a tampered zip can't write outside your mods
+folder. Add `-Mirror` to also remove mods on the target that aren't in the archive.
+
+Check it with `.\darktide.ps1 status`, then launch the game.
+
+> **Why an archive, and not "download all the mods automatically"?**
+> A Nexus **free** account cannot get download links from the API — `download_link.json`
+> returns HTTP 403, premium only — and scraping the site would breach their terms. So no tool
+> can legitimately fetch 46 mods for you on a free account, and this repo can't ship the mod
+> files either: they're their authors' work to distribute. Your own export zip is the way to
+> get a one-command restore, and it's the only part that has to travel with you.
+>
+> With Nexus Premium you'd still download in the browser here; what an API key buys you is
+> `check` telling you *which* mods are outdated. See [Version checking](#version-checking-optional).
 
 ---
 
@@ -359,6 +437,9 @@ What it covers:
 | `tests/OfflineUpdate.Tests.ps1` | Upgrade installs and is recorded; **re-running installs nothing**; new mods land with a load-order entry that is not duplicated; downgrades refused without `-Force`; traversal and malformed archives rejected without destroying the installed mod. |
 | `tests/Update.Tests.ps1` | Nexus filename parsing, version comparison, mod-name resolution from the `.mod` file, unsafe-name refusal, and zip-slip guards (`../`, `..\`, absolute paths). |
 | `tests/Lock.Tests.ps1` | Lockfile shape, ID mapping, no mod content, stable regeneration, content hashes that move only when a mod changes. |
+| `tests/Setup.Tests.ps1` | Game detection: real game files vs a folder that only has the right name, multi-drive Steam libraries parsed from `libraryfolders.vdf`, and a generated config the other tools can consume. |
+| `tests/Export.Tests.ps1` | The loadout archive: every mod included, forward-slash entry names so it opens on any tool, no overwrite without `-Force`, never written inside the folder it's archiving. |
+| `tests/Import.Tests.ps1` | Export → import round trip onto an empty machine, replacing an existing install without merging stale files, traversal archives refused, and restore-plus-deploy in one run. |
 
 ---
 
@@ -389,6 +470,9 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser
 | `Update-DarktideMods.ps1` | Version checking and installing into staging. |
 | `Deploy-DarktideMods.ps1` | Staging → game folder sync, with validation and backup. |
 | `New-ModpackLock.ps1` | Generates the lockfile from an installed mods folder. |
+| `Initialize-DarktideConfig.ps1` | Finds the game via Steam and writes `config.json`. |
+| `Export-DarktideLoadout.ps1` | Packs your loadout into one zip (local backup). |
+| `Import-DarktideLoadout.ps1` | Restores a loadout zip and deploys it. |
 | `Test-Modpack.ps1` | Repository validator, used by CI. |
 | `Invoke-Tests.ps1` | Runs the Pester suite, then the validator. |
 | `tests/` | Pester tests. Sandboxed — no game, no key, no network. |
@@ -433,7 +517,7 @@ gitignored; logs older than 30 days are pruned automatically.
 .\Invoke-Tests.ps1
 ```
 
-Runs 81 sandboxed tests plus the repository validator. It touches nothing real — see
+Runs 126 sandboxed tests plus the repository validator. It touches nothing real — see
 [Testing](#testing).
 
 ---
