@@ -18,6 +18,7 @@ secrets.json
 mods/
 Darktide_Mod_Loader*/
 *.mod
+darktide-loadout-*.zip
 *.patch_*
 dtkit-patch.exe
 

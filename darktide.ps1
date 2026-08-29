@@ -13,6 +13,9 @@
         .\darktide.ps1 rollback   undo the last staging install
         .\darktide.ps1 restore    undo the last deploy to the game folder
         .\darktide.ps1 lock       regenerate darktide-modpack.lock.json
+        .\darktide.ps1 init       find the game automatically and write config.json
+        .\darktide.ps1 export     zip your whole loadout as a personal backup
+        .\darktide.ps1 import     restore a loadout zip and deploy it
 
     Everything is a dry run until you add -Apply, except 'status' and 'check'
     which never write anything.
@@ -39,7 +42,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('status', 'check', 'update', 'deploy', 'sync', 'rollback', 'restore', 'lock', 'help')]
+    [ValidateSet('init', 'status', 'check', 'update', 'deploy', 'sync', 'rollback', 'restore', 'lock', 'export', 'import', 'help')]
     [string]   $Verb = 'help',
 
     [switch]   $Apply,
@@ -50,6 +53,10 @@ param(
     [string[]] $Only,
     [string[]] $Skip,
     [string]   $BackupSet,
+    [string]   $OutFile,
+    [string]   $Path,
+    [string]   $GamePath,
+    [switch]   $Deploy,
     [string]   $ConfigPath = (Join-Path $PSScriptRoot 'config.json')
 )
 
@@ -64,9 +71,26 @@ function Write-Err  { param([string]$m) Write-Host $m -ForegroundColor Red }
 $Updater = Join-Path $PSScriptRoot 'Update-DarktideMods.ps1'
 $Deployer = Join-Path $PSScriptRoot 'Deploy-DarktideMods.ps1'
 $Locker  = Join-Path $PSScriptRoot 'New-ModpackLock.ps1'
+$Exporter = Join-Path $PSScriptRoot 'Export-DarktideLoadout.ps1'
+$Importer = Join-Path $PSScriptRoot 'Import-DarktideLoadout.ps1'
+$Initer   = Join-Path $PSScriptRoot 'Initialize-DarktideConfig.ps1'
 
-foreach ($s in @($Updater, $Deployer, $Locker)) {
+foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer)) {
     if (-not (Test-Path -LiteralPath $s)) { throw "Missing script: $s" }
+}
+
+# ---- Verbs that must work before there is a config ---------------------------------
+
+# 'init' is what creates config.json, so it cannot require one to exist.
+if ($Verb -eq 'init') {
+    Write-Head 'Detecting your Darktide install'
+    & $Initer -ConfigPath $ConfigPath -GamePath $GamePath -Force:$Force -Confirm:$false
+    return
+}
+
+if ($Verb -eq 'help') {
+    Get-Help -Full $PSCommandPath | Out-String | Write-Host
+    return
 }
 
 # ---- Config ------------------------------------------------------------------------
@@ -75,7 +99,11 @@ if (-not (Test-Path -LiteralPath $ConfigPath)) {
     $example = Join-Path $PSScriptRoot 'config.example.json'
     if (Test-Path -LiteralPath $example) {
         throw @"
-No config.json yet. Create one from the template and edit the paths:
+No config.json yet. Let it find your game automatically:
+
+    .\darktide.ps1 init
+
+Or write one by hand from the template:
 
     Copy-Item '$example' '$ConfigPath'
     notepad '$ConfigPath'
@@ -245,6 +273,29 @@ switch ($Verb) {
     'lock' {
         Write-Head 'Regenerating the lockfile'
         & $Locker -ModsRoot $modsRoot
+        return
+    }
+
+    'export' {
+        Write-Head "Exporting the loadout as a zip$(if (-not $Apply) { ' (dry run)' })"
+        if (-not $Apply) {
+            Write-Warn 'Dry run: pass -Apply to actually write the archive.'
+        }
+        & $Exporter -ConfigPath $ConfigPath -OutFile $OutFile -Force:$Force `
+                    -WhatIf:(-not $Apply) -Confirm:$false
+        return
+    }
+
+    'import' {
+        if (-not $Path) {
+            throw "Which archive? Pass -Path, e.g. .\darktide.ps1 import -Path 'D:\backup\darktide-loadout-20260829.zip' -Apply"
+        }
+        Write-Head "Restoring a loadout archive$(if (-not $Apply) { ' (dry run)' })"
+        # Restoring a saved loadout is only 'fully automated' if it lands in the game
+        # too, so deploy by default unless the caller says otherwise.
+        $alsoDeploy = if ($PSBoundParameters.ContainsKey('Deploy')) { [bool]$Deploy } else { $true }
+        & $Importer -ConfigPath $ConfigPath -Path $Path -Apply:$Apply `
+                    -Deploy:$alsoDeploy -Mirror:$Mirror -Force:$Force -Confirm:$false
         return
     }
 }
