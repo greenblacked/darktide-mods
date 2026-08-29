@@ -1,0 +1,286 @@
+name: CI
+
+# Manual only, by design - nothing here should fire on a push you did not intend.
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: 'What to run'
+        required: true
+        default: validate
+        type: choice
+        options:
+          - validate
+          - release
+          - refresh-lock
+      version:
+        description: 'Release version, e.g. 1.2.0 (release only; leave blank to derive from the date)'
+        required: false
+        type: string
+      prerelease:
+        description: 'Mark the release as a pre-release'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+
+  # ---------------------------------------------------------------------------
+  # Lint + validate. Always runs; the other jobs depend on it.
+  # ---------------------------------------------------------------------------
+  validate:
+    name: Lint and validate
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Cache PowerShell modules
+        uses: actions/cache@v6
+        with:
+          path: ~/Documents/PowerShell/Modules
+          key: psmodules-${{ runner.os }}-psscriptanalyzer-pester
+
+      - name: Install PSScriptAnalyzer and Pester
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          if (-not (Get-Module -ListAvailable -Name PSScriptAnalyzer)) {
+            Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+          }
+          if (-not (Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version.Major -ge 5 })) {
+            Install-Module Pester -MinimumVersion 5.5.0 -Scope CurrentUser -Force -SkipPublisherCheck
+          }
+
+      # The suite builds its own staging folder, fake game install and archives
+      # under the runner's temp directory. It needs no game, no key and no network.
+      - name: Run tests
+        shell: pwsh
+        run: ./Invoke-Tests.ps1 -Output Detailed -SkipValidator
+
+      - name: Run validator
+        shell: pwsh
+        run: ./Test-Modpack.ps1
+
+      - name: Summarise the loadout
+        shell: pwsh
+        run: |
+          $lock = Get-Content ./darktide-modpack.lock.json -Raw | ConvertFrom-Json
+          $mapped = @($lock.mods | Where-Object { $_.modId }).Count
+          $md = @()
+          $md += "## Loadout: $($lock.name)"
+          $md += ""
+          $md += "| | |"
+          $md += "|---|---|"
+          $md += "| Mods | $($lock.modCount) |"
+          $md += "| With a Nexus id | $mapped |"
+          $md += "| Load order entries | $(@($lock.loadOrder).Count) |"
+          $md += "| Lockfile generated | $($lock.generatedAt) |"
+          $md | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+  # ---------------------------------------------------------------------------
+  # Build a release zip and publish it.
+  # Ships the tooling and the manifest. Never any mod files.
+  # ---------------------------------------------------------------------------
+  release:
+    name: Build and publish release
+    needs: validate
+    if: inputs.task == 'release'
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolve version
+        id: ver
+        shell: pwsh
+        run: |
+          $v = '${{ inputs.version }}'
+          if (-not $v) { $v = (Get-Date -Format 'yyyy.MM.dd') + '.' + $env:GITHUB_RUN_NUMBER }
+          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Release version: $v"
+
+      - name: Stage package
+        shell: pwsh
+        run: |
+          $dist = 'dist/darktide-mods'
+          New-Item -ItemType Directory -Path $dist -Force | Out-Null
+
+          # Explicit allow-list. Anything not named here does not ship - this is what
+          # guarantees no mod content or local config ends up in a published artifact.
+          $include = @(
+            'darktide.ps1',
+            'Update-DarktideMods.ps1',
+            'Deploy-DarktideMods.ps1',
+            'New-ModpackLock.ps1',
+            'Test-Modpack.ps1',
+            'config.example.json',
+            'mods-map.json',
+            'darktide-modpack.lock.json',
+            'README.md',
+            'LICENSE'
+          )
+          foreach ($f in $include) {
+            if (-not (Test-Path $f)) { throw "Missing required file: $f" }
+            Copy-Item $f -Destination $dist -Force
+          }
+
+          # Ship the suite too, so anyone can verify the tooling before running it
+          # against their own game folder.
+          Copy-Item 'Invoke-Tests.ps1' -Destination $dist -Force
+          Copy-Item 'tests' -Destination $dist -Recurse -Force
+
+          # Belt and braces: refuse to ship if anything mod-shaped slipped in.
+          $bad = Get-ChildItem $dist -Recurse -File |
+                 Where-Object { $_.Extension -in @('.mod', '.zip') -or $_.Name -eq 'config.json' }
+          if ($bad) { throw "Refusing to package: $($bad.Name -join ', ')" }
+
+          Write-Host "Packaged $((Get-ChildItem $dist -File).Count) files."
+
+      - name: Create archive
+        shell: pwsh
+        run: |
+          $v = '${{ steps.ver.outputs.version }}'
+          Compress-Archive -Path 'dist/darktide-mods/*' -DestinationPath "dist/darktide-mods-$v.zip" -Force
+          $h = (Get-FileHash "dist/darktide-mods-$v.zip" -Algorithm SHA256).Hash.ToLower()
+          "$h  darktide-mods-$v.zip" | Out-File "dist/darktide-mods-$v.zip.sha256" -Encoding ascii
+          Write-Host "SHA-256: $h"
+
+      - name: Write release notes
+        shell: pwsh
+        run: |
+          $lock = Get-Content ./darktide-modpack.lock.json -Raw | ConvertFrom-Json
+          $n = @()
+          $n += "### What this is"
+          $n += ""
+          $n += "Tooling plus a **manifest** for a $($lock.modCount)-mod Darktide loadout."
+          $n += "No mod files are included or redistributed - the lockfile tells you which mods to get and links to each author's Nexus page."
+          $n += ""
+          $n += "### Install"
+          $n += ""
+          $n += '```powershell'
+          $n += 'Expand-Archive darktide-mods-*.zip -DestinationPath .\darktide-mods'
+          $n += 'cd .\darktide-mods'
+          $n += 'Copy-Item config.example.json config.json   # then edit the paths'
+          $n += '.\darktide.ps1 status'
+          $n += '```'
+          $n += ""
+          $n += "### Mods in this loadout"
+          $n += ""
+          $n += "| Mod | Version | Page |"
+          $n += "|---|---|---|"
+          foreach ($m in ($lock.mods | Sort-Object folder)) {
+            $ver  = if ($m.version) { $m.version } else { '-' }
+            $link = if ($m.url) { "[$($m.modId)]($($m.url))" } else { '_unmapped_' }
+            $n += "| $($m.name) | $ver | $link |"
+          }
+          $n -join "`n" | Out-File release-notes.md -Encoding utf8
+
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = '${{ steps.ver.outputs.version }}'
+          $pre = if ('${{ inputs.prerelease }}' -eq 'true') { '--prerelease' } else { '' }
+          gh release create "v$v" `
+            "dist/darktide-mods-$v.zip" `
+            "dist/darktide-mods-$v.zip.sha256" `
+            --title "darktide-mods v$v" `
+            --notes-file release-notes.md `
+            $pre
+
+  # ---------------------------------------------------------------------------
+  # Refresh the lockfile's version data from the Nexus API and open a PR.
+  # Metadata only - works fine on a free Nexus account, downloads nothing.
+  # Needs the NEXUS_API_KEY repository secret.
+  # ---------------------------------------------------------------------------
+  refresh-lock:
+    name: Refresh lockfile from Nexus
+    needs: validate
+    if: inputs.task == 'refresh-lock'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check for the API key
+        shell: pwsh
+        env:
+          NEXUS_API_KEY: ${{ secrets.NEXUS_API_KEY }}
+        run: |
+          if (-not $env:NEXUS_API_KEY) {
+            throw "The NEXUS_API_KEY repository secret is not set. Add it under Settings -> Secrets and variables -> Actions. A free Nexus account is enough - this only reads version metadata."
+          }
+
+      - name: Query Nexus for current versions
+        shell: pwsh
+        env:
+          NEXUS_API_KEY: ${{ secrets.NEXUS_API_KEY }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $lock = Get-Content ./darktide-modpack.lock.json -Raw | ConvertFrom-Json
+          $headers = @{
+            apikey                = $env:NEXUS_API_KEY
+            Accept                = 'application/json'
+            'Application-Name'    = 'darktide-mods-ci'
+            'Application-Version' = '1.0.0'
+          }
+
+          $changed = 0
+          $rows    = @()
+
+          foreach ($m in $lock.mods) {
+            if (-not $m.modId) { continue }
+            $uri = "https://api.nexusmods.com/v1/games/$($lock.game)/mods/$($m.modId).json"
+            try {
+              $r = Invoke-RestMethod -Uri $uri -Headers $headers -TimeoutSec 45
+            } catch {
+              Write-Host "::warning::mod $($m.modId) ($($m.folder)) could not be queried: $($_.Exception.Message)"
+              continue
+            }
+            $latest = "$($r.version)"
+            if ($latest -and $latest -ne "$($m.version)") {
+              $rows += "| $($m.name) | $($m.version) | **$latest** | $($m.url) |"
+              $m.version       = $latest
+              $m.versionSource = 'nexus-api'
+              $changed++
+            }
+            Start-Sleep -Milliseconds 400   # stay well inside 100 req/hour
+          }
+
+          if ($changed -gt 0) {
+            $lock.generatedAt = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+            $lock.generatedBy = 'ci/refresh-lock'
+            $lock | ConvertTo-Json -Depth 8 | Set-Content ./darktide-modpack.lock.json -Encoding utf8
+          }
+
+          $body = @("Updated **$changed** mod version(s) from the Nexus API.", "")
+          if ($rows) {
+            $body += "| Mod | Was | Now | Page |"
+            $body += "|---|---|---|---|"
+            $body += $rows
+          }
+          $body -join "`n" | Out-File pr-body.md -Encoding utf8
+          "CHANGED=$changed" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $body -join "`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: Open pull request
+        if: env.CHANGED != '0'
+        uses: peter-evans/create-pull-request@v8
+        with:
+          commit-message: 'chore: refresh lockfile versions from Nexus'
+          branch: ci/refresh-lockfile
+          delete-branch: true
+          title: 'chore: refresh lockfile versions'
+          body-path: pr-body.md
+          add-paths: darktide-modpack.lock.json
+
+      - name: Nothing to do
+        if: env.CHANGED == '0'
+        run: echo "All locked versions already match Nexus."
