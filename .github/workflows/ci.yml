@@ -1,7 +1,13 @@
 name: CI
 
-# Manual only, by design - nothing here should fire on a push you did not intend.
+# The 'validate' job runs automatically on every push and pull request.
+# 'release' and 'refresh-lock' publish things, so they stay manual-only - both are
+# gated on the event being a workflow_dispatch, not just on the task input.
 on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main]
   workflow_dispatch:
     inputs:
       task:
@@ -25,6 +31,12 @@ on:
 
 permissions:
   contents: read
+
+# A newer push supersedes an in-flight run on the same ref. Manual runs are never
+# cancelled: a half-finished release is worse than a wasted minute.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
 
 jobs:
 
@@ -87,7 +99,7 @@ jobs:
   release:
     name: Build and publish release
     needs: validate
-    if: inputs.task == 'release'
+    if: github.event_name == 'workflow_dispatch' && inputs.task == 'release'
     runs-on: windows-latest
     permissions:
       contents: write
@@ -205,7 +217,7 @@ jobs:
   refresh-lock:
     name: Refresh lockfile from Nexus
     needs: validate
-    if: inputs.task == 'refresh-lock'
+    if: github.event_name == 'workflow_dispatch' && inputs.task == 'refresh-lock'
     runs-on: ubuntu-latest
     permissions:
       contents: write
