@@ -1,5 +1,10 @@
 # darktide-mods
 
+[![CI](https://github.com/greenblacked/darktide-mods/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/greenblacked/darktide-mods/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-81%20passing-brightgreen)](tests/)
+[![PowerShell](https://img.shields.io/badge/PowerShell-5.1%20%7C%207-5391FE)](https://learn.microsoft.com/powershell/)
+[![License: MIT](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
+
 Mod management for **Warhammer 40,000: Darktide** — update, verify, and deploy a Darktide Mod
 Framework loadout from PowerShell, with backups and a one-command rollback at every step.
 
