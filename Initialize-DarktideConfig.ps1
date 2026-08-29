@@ -43,6 +43,7 @@ param(
     [string] $GamePath,
     [string] $ModsRoot,
     [string] $DownloadDir,
+    [string] $LoaderSource,
     [switch] $Force
 )
 
@@ -249,11 +250,36 @@ if (-not $DownloadDir) {
 }
 Write-Ok "Downloads : $DownloadDir"
 
+# ---- Mod loader --------------------------------------------------------------------
+
+# The loader is a separate download that drops files into the game folder. Record it
+# if the user already has it unzipped somewhere obvious, so 'darktide.ps1 loader'
+# needs no arguments.
+if (-not $LoaderSource) {
+    $searchRoots = @((Split-Path -Parent $PSScriptRoot), (Split-Path -Parent $ModsRoot), $DownloadDir) |
+                   Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Container) } |
+                   Select-Object -Unique
+
+    foreach ($root in $searchRoots) {
+        foreach ($dir in @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue |
+                           Where-Object { $_.Name -match '(?i)mod.?loader' } |
+                           Sort-Object LastWriteTime -Descending)) {
+            $looksRight = (Test-Path -LiteralPath (Join-Path $dir.FullName 'toggle_darktide_mods.bat')) -and
+                          (Test-Path -LiteralPath (Join-Path $dir.FullName 'tools\dtkit-patch.exe'))
+            if ($looksRight) { $LoaderSource = $dir.FullName; break }
+        }
+        if ($LoaderSource) { break }
+    }
+}
+
+if ($LoaderSource) { Write-Ok "Loader    : $LoaderSource" }
+else { Write-Warn "Loader    : not found - download it from https://www.nexusmods.com/warhammer40kdarktide/mods/19" }
+
 $parent = Split-Path -Parent $ModsRoot
 $config = [ordered]@{
     ModsRoot         = $ModsRoot
     GamePath         = $resolvedGame
-    LoaderSource     = ''
+    LoaderSource     = $LoaderSource
     DownloadDir      = $DownloadDir
     BackupRoot       = (Join-Path $parent 'mod_backups')
     DeployBackupRoot = (Join-Path $parent 'deploy_backups')

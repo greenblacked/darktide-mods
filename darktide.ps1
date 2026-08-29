@@ -14,6 +14,7 @@
         .\darktide.ps1 restore    undo the last deploy to the game folder
         .\darktide.ps1 lock       regenerate darktide-modpack.lock.json
         .\darktide.ps1 init       find the game automatically and write config.json
+        .\darktide.ps1 loader     install or update the Darktide Mod Loader
         .\darktide.ps1 export     zip your whole loadout as a personal backup
         .\darktide.ps1 import     restore a loadout zip and deploy it
 
@@ -42,7 +43,8 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('init', 'status', 'check', 'update', 'deploy', 'sync', 'rollback', 'restore', 'lock', 'export', 'import', 'help')]
+    [ValidateSet('init', 'status', 'check', 'update', 'deploy', 'sync', 'rollback', 'restore', 'lock',
+                 'loader', 'export', 'import', 'help')]
     [string]   $Verb = 'help',
 
     [switch]   $Apply,
@@ -55,6 +57,7 @@ param(
     [string]   $BackupSet,
     [string]   $OutFile,
     [string]   $Path,
+    [string]   $Source,
     [string]   $GamePath,
     [switch]   $Deploy,
     [string]   $ConfigPath = (Join-Path $PSScriptRoot 'config.json')
@@ -74,8 +77,9 @@ $Locker  = Join-Path $PSScriptRoot 'New-ModpackLock.ps1'
 $Exporter = Join-Path $PSScriptRoot 'Export-DarktideLoadout.ps1'
 $Importer = Join-Path $PSScriptRoot 'Import-DarktideLoadout.ps1'
 $Initer   = Join-Path $PSScriptRoot 'Initialize-DarktideConfig.ps1'
+$Loaderer = Join-Path $PSScriptRoot 'Install-DarktideLoader.ps1'
 
-foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer)) {
+foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer)) {
     if (-not (Test-Path -LiteralPath $s)) { throw "Missing script: $s" }
 }
 
@@ -168,8 +172,21 @@ switch ($Verb) {
             } else { Write-Warn '  no mods\ folder in the game directory - never deployed' }
 
             $toggle = Join-Path $gamePath 'toggle_darktide_mods.bat'
-            if (Test-Path -LiteralPath $toggle) { Write-Ok '  mod loader present' }
-            else { Write-Warn '  mod loader NOT installed (deploy with -InstallLoader)' }
+            if (Test-Path -LiteralPath $toggle) {
+                $lstate = Join-Path $gamePath '.darktide-loader.json'
+                if (Test-Path -LiteralPath $lstate) {
+                    try {
+                        $ls = Get-Content -LiteralPath $lstate -Raw -Encoding UTF8 | ConvertFrom-Json
+                        $lv = if ($ls.PSObject.Properties.Name -contains 'version' -and $ls.version) { $ls.version } else { 'unknown' }
+                        Write-Ok "  mod loader present (version $lv)"
+                    } catch { Write-Ok '  mod loader present (state file unreadable)' }
+                } else {
+                    Write-Ok '  mod loader present (version not tracked - run: .\darktide.ps1 loader -Apply)'
+                }
+                $patchFile = @(Get-ChildItem -LiteralPath (Join-Path $gamePath 'bundle') -Filter '*.patch_*' -File -ErrorAction SilentlyContinue)
+                if (-not $patchFile) { Write-Warn '  mod entry bundle missing - mods will not load' }
+            }
+            else { Write-Warn '  mod loader NOT installed (run: .\darktide.ps1 loader -Apply)' }
         } else { Write-Err "  game folder not found: $gamePath" }
 
         Write-Head 'Backups'
@@ -283,6 +300,12 @@ switch ($Verb) {
         }
         & $Exporter -ConfigPath $ConfigPath -OutFile $OutFile -Force:$Force `
                     -WhatIf:(-not $Apply) -Confirm:$false
+        return
+    }
+
+    'loader' {
+        Write-Head "Mod loader$(if (-not $Apply) { ' (dry run)' })"
+        & $Loaderer -ConfigPath $ConfigPath -Source $Source -Apply:$Apply -Force:$Force -Confirm:$false
         return
     }
 

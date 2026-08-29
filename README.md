@@ -1,7 +1,7 @@
 # darktide-mods
 
 [![CI](https://github.com/greenblacked/darktide-mods/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/greenblacked/darktide-mods/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-126%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-153%20passing-brightgreen)](tests/)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%20%7C%207-5391FE)](https://learn.microsoft.com/powershell/)
 [![License: MIT](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
@@ -109,7 +109,7 @@ notepad config.json
 | `ModsRoot` | Your **staging** mods folder, e.g. `D:\Darktide\mods`. Not the game's. |
 | `GamePath` | The game install root, e.g. `D:\Games\Steam\steamapps\common\Warhammer 40,000 DARKTIDE`. |
 | `DownloadDir` | Where your browser saves Nexus archives, e.g. `C:\Users\you\Downloads`. |
-| `LoaderSource` | Unzipped Darktide Mod Loader folder. Only needed for `-InstallLoader`. |
+| `LoaderSource` | Unzipped Darktide Mod Loader folder or its `.zip`. `init` fills this in if it finds one. |
 | `BackupRoot` | Staging backups. Leave blank for `<parent of ModsRoot>\mod_backups`. |
 | `DeployBackupRoot` | Game-folder backups. Leave blank for `<parent of ModsRoot>\deploy_backups`. |
 | `ApiKey` | Leave blank. Prefer the `NEXUS_API_KEY` environment variable — see [Version checking](#version-checking-optional). |
@@ -120,7 +120,25 @@ notepad config.json
 > `Copy-Item '<GamePath>\mods' 'D:\Darktide\mods' -Recurse`. From then on you edit staging
 > and deploy from it, never the game folder directly.
 
-### 4. Check it found everything
+### 4. Install the mod loader
+
+Without it, DMF mods do not load at all. It is a separate download that puts files into the
+game folder and patches the bundle database:
+
+```powershell
+.\darktide.ps1 loader             # dry run - shows the version it would install
+.\darktide.ps1 loader -Apply
+```
+
+Get it from
+[nexusmods.com/warhammer40kdarktide/mods/19](https://www.nexusmods.com/warhammer40kdarktide/mods/19)
+into your `DownloadDir` — `loader` picks up either the `.zip` or an unzipped folder on its
+own. Point at one explicitly with `-Source '<path>'`.
+
+It records the installed version in `<game>\.darktide-loader.json`, so re-running when
+nothing has changed does nothing at all. See [The mod loader](#the-mod-loader).
+
+### 5. Check it found everything
 
 ```powershell
 .\darktide.ps1 status
@@ -213,6 +231,7 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 | Verb | What it does |
 |---|---|
 | `init` | Find your Darktide install automatically and write `config.json`. |
+| `loader` | Install or update the Darktide Mod Loader and patch the bundle. |
 | `status` | Staged vs deployed, drift, loader state, backup sets. Read-only. |
 | `check` | Ask Nexus what's outdated. Needs an API key. Read-only. |
 | `update` | Install newer archives from your download folder into staging. |
@@ -232,6 +251,43 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 .\darktide.ps1 deploy -Apply -InstallLoader -RunToggle      # fresh install / after a game patch
 .\darktide.ps1 update -Apply -Force -Only NumericUI         # reinstall or downgrade one mod
 ```
+
+---
+
+## The mod loader
+
+The [Darktide Mod Loader](https://www.nexusmods.com/warhammer40kdarktide/mods/19) is what
+makes DMF mods load. It isn't a normal mod — it writes into the game folder itself and
+patches the bundle database — so it has its own verb rather than going through staging.
+
+```powershell
+.\darktide.ps1 loader             # what is installed vs what you have downloaded
+.\darktide.ps1 loader -Apply      # install or update, then patch
+.\darktide.ps1 loader -Apply -Force   # reinstall the same version
+```
+
+What it puts where:
+
+| From the loader download | Goes to |
+|---|---|
+| `binaries\mod_loader` | game folder |
+| `bundle\<hash>.patch_999` | game folder — the mod entry bundle |
+| `tools\dtkit-patch.exe` | game folder |
+| `toggle_darktide_mods.bat` | game folder |
+| `mods\base\` | **staging**, so a normal `deploy` carries it |
+
+Your `mod_load_order.txt` is never overwritten — the loader ships its own, and replacing
+yours would wipe your mod list.
+
+**Updating follows the loader's own instructions:** unpatch the bundle database, copy the new
+files, re-patch. The previous loader is zipped to `loader_backups\` first.
+
+> **Never run `toggle_darktide_mods.bat` twice.** It *toggles*: once patches, twice unpatches
+> and every mod silently stops loading. This tooling always calls `dtkit-patch` with an
+> explicit `--patch` / `--unpatch`, so re-running `loader -Apply` can't flip you off.
+
+The installed version is recorded in `<game>\.darktide-loader.json` and shown by `status`.
+Re-running with the same version does nothing and doesn't touch the bundle at all.
 
 ---
 
@@ -289,6 +345,8 @@ Every verb is idempotent: running it twice does the same thing as running it onc
 - `update` records the installed version in each mod's `.nexus-mod.json`, so an archive you
   have already installed comes back as `SAME` and is skipped. `-Force` reinstalls.
 - `mod_load_order.txt` is only ever appended to, and never with a name already in it.
+- `loader` compares the version you have against `<game>\.darktide-loader.json` and stops if
+  they match — it doesn't even touch the bundle database, so it can't toggle your mods off.
 - Deploy backups are pruned to the newest `-KeepBackups` archives (default 10), so repeated
   deploys cannot fill the disk.
 
@@ -345,7 +403,7 @@ The order matters:
 
 ```powershell
 # 1. Re-apply the mod loader's bundle patch (Steam replaced it)
-.\darktide.ps1 deploy -Apply -InstallLoader -RunToggle
+.\darktide.ps1 loader -Apply -Force
 
 # 2. Update the framework first - most mods depend on it
 .\darktide.ps1 update -Apply -Only dmf
@@ -438,6 +496,7 @@ What it covers:
 | `tests/Update.Tests.ps1` | Nexus filename parsing, version comparison, mod-name resolution from the `.mod` file, unsafe-name refusal, and zip-slip guards (`../`, `..\`, absolute paths). |
 | `tests/Lock.Tests.ps1` | Lockfile shape, ID mapping, no mod content, stable regeneration, content hashes that move only when a mod changes. |
 | `tests/Setup.Tests.ps1` | Game detection: real game files vs a folder that only has the right name, multi-drive Steam libraries parsed from `libraryfolders.vdf`, and a generated config the other tools can consume. |
+| `tests/Loader.Tests.ps1` | Loader version parsing, payload validation, install/update, base into staging, your load order preserved, backups, and — against a stub patcher — that it uses `--patch`/`--unpatch` in the right order and never the toggle. |
 | `tests/Export.Tests.ps1` | The loadout archive: every mod included, forward-slash entry names so it opens on any tool, no overwrite without `-Force`, never written inside the folder it's archiving. |
 | `tests/Import.Tests.ps1` | Export → import round trip onto an empty machine, replacing an existing install without merging stale files, traversal archives refused, and restore-plus-deploy in one run. |
 
@@ -471,6 +530,7 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser
 | `Deploy-DarktideMods.ps1` | Staging → game folder sync, with validation and backup. |
 | `New-ModpackLock.ps1` | Generates the lockfile from an installed mods folder. |
 | `Initialize-DarktideConfig.ps1` | Finds the game via Steam and writes `config.json`. |
+| `Install-DarktideLoader.ps1` | Installs/updates the mod loader, manages the bundle patch. |
 | `Export-DarktideLoadout.ps1` | Packs your loadout into one zip (local backup). |
 | `Import-DarktideLoadout.ps1` | Restores a loadout zip and deploys it. |
 | `Test-Modpack.ps1` | Repository validator, used by CI. |
@@ -517,7 +577,7 @@ gitignored; logs older than 30 days are pruned automatically.
 .\Invoke-Tests.ps1
 ```
 
-Runs 126 sandboxed tests plus the repository validator. It touches nothing real — see
+Runs 153 sandboxed tests plus the repository validator. It touches nothing real — see
 [Testing](#testing).
 
 ---
@@ -529,8 +589,8 @@ Runs 126 sandboxed tests plus the repository validator. It touches nothing real 
 - Version comparison is numeric-segment based. Authors using non-numeric version strings fall
   back to a string compare and may misreport.
 - Mods distributed only via GitHub or Discord are invisible to the version checker.
-- The mod loader itself is installed but not version-managed here — it patches game files,
-  which is a different risk class. Update it by hand from its Nexus page.
+- The mod loader is version-tracked by name only. It ships no version file, so the version
+  comes from the download's filename; rename it and the version reads as unknown.
 
 ## Licence
 
