@@ -1,0 +1,272 @@
+{
+  "afk": {
+    "modId": null,
+    "name": "afk",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=afk",
+    "pinned": false
+  },
+  "Alfs_DMF_Extensions": {
+    "modId": 864,
+    "name": "Alf's DMF Extensions",
+    "note": "",
+    "pinned": false
+  },
+  "animation_events": {
+    "modId": null,
+    "name": "animation_events",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=animation_events",
+    "pinned": false
+  },
+  "character_cosmetics_view_improved": {
+    "modId": 347,
+    "name": "Character Cosmetics View Improved",
+    "note": "",
+    "pinned": false
+  },
+  "clear_smoke": {
+    "modId": null,
+    "name": "clear_smoke",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=clear_smoke",
+    "pinned": false
+  },
+  "commodores_vestures_improved": {
+    "modId": 348,
+    "name": "Commodore's Vestures Improved",
+    "note": "",
+    "pinned": false
+  },
+  "creature_spawner": {
+    "modId": null,
+    "name": "creature_spawner",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=creature_spawner",
+    "pinned": false
+  },
+  "crosshair_remap": {
+    "modId": null,
+    "name": "crosshair_remap",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=crosshair_remap",
+    "pinned": false
+  },
+  "danger_zone": {
+    "modId": null,
+    "name": "danger_zone",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=danger_zone",
+    "pinned": false
+  },
+  "Decode_Helper": {
+    "modId": null,
+    "name": "Decode_Helper",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=Decode_Helper",
+    "pinned": false
+  },
+  "DecodeMinigameSolver": {
+    "modId": null,
+    "name": "DecodeMinigameSolver",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=DecodeMinigameSolver",
+    "pinned": false
+  },
+  "DisableScreenEffects": {
+    "modId": null,
+    "name": "DisableScreenEffects",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=DisableScreenEffects",
+    "pinned": false
+  },
+  "dmf": {
+    "modId": null,
+    "name": "dmf",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=dmf",
+    "pinned": false
+  },
+  "enemies_improved": {
+    "modId": 809,
+    "name": "Enemies Improved",
+    "note": "",
+    "pinned": false
+  },
+  "FilterTrash": {
+    "modId": null,
+    "name": "FilterTrash",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=FilterTrash",
+    "pinned": false
+  },
+  "FoundYa": {
+    "modId": null,
+    "name": "FoundYa",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=FoundYa",
+    "pinned": false
+  },
+  "GlobalStore": {
+    "modId": null,
+    "name": "GlobalStore",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=GlobalStore",
+    "pinned": false
+  },
+  "guarantee_ability_activation": {
+    "modId": null,
+    "name": "guarantee_ability_activation",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=guarantee_ability_activation",
+    "pinned": false
+  },
+  "guarantee_special_action": {
+    "modId": null,
+    "name": "guarantee_special_action",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=guarantee_special_action",
+    "pinned": false
+  },
+  "guarantee_weapon_swap": {
+    "modId": null,
+    "name": "guarantee_weapon_swap",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=guarantee_weapon_swap",
+    "pinned": false
+  },
+  "hub_hotkey_menus": {
+    "modId": null,
+    "name": "hub_hotkey_menus",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=hub_hotkey_menus",
+    "pinned": false
+  },
+  "hybrid_sprint": {
+    "modId": null,
+    "name": "hybrid_sprint",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=hybrid_sprint",
+    "pinned": false
+  },
+  "InspectFromSocial": {
+    "modId": null,
+    "name": "InspectFromSocial",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=InspectFromSocial",
+    "pinned": false
+  },
+  "KillfeedImprovements": {
+    "modId": null,
+    "name": "KillfeedImprovements",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=KillfeedImprovements",
+    "pinned": false
+  },
+  "ManyMoreTry": {
+    "modId": null,
+    "name": "ManyMoreTry",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=ManyMoreTry",
+    "pinned": false
+  },
+  "markers_aio": {
+    "modId": 447,
+    "name": "Markers Improved All-in-one",
+    "note": "",
+    "pinned": false
+  },
+  "master_item_community_patch": {
+    "modId": null,
+    "name": "master_item_community_patch",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=master_item_community_patch",
+    "pinned": false
+  },
+  "MemLeakFix": {
+    "modId": null,
+    "name": "MemLeakFix",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=MemLeakFix",
+    "pinned": false
+  },
+  "NoBrainer": {
+    "modId": null,
+    "name": "NoBrainer",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=NoBrainer",
+    "pinned": false
+  },
+  "NumericUI": {
+    "modId": null,
+    "name": "NumericUI",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=NumericUI",
+    "pinned": false
+  },
+  "ovenproof_scoreboard_plugin": {
+    "modId": null,
+    "name": "ovenproof_scoreboard_plugin",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=ovenproof_scoreboard_plugin",
+    "pinned": false
+  },
+  "Plasma_Accelerated_Shooting": {
+    "modId": null,
+    "name": "Plasma_Accelerated_Shooting",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=Plasma_Accelerated_Shooting",
+    "pinned": false
+  },
+  "PlayerOutlines": {
+    "modId": null,
+    "name": "PlayerOutlines",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=PlayerOutlines",
+    "pinned": false
+  },
+  "RecolorBossHealthBars": {
+    "modId": null,
+    "name": "RecolorBossHealthBars",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=RecolorBossHealthBars",
+    "pinned": false
+  },
+  "ReorderChars": {
+    "modId": null,
+    "name": "ReorderChars",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=ReorderChars",
+    "pinned": false
+  },
+  "scoreboard": {
+    "modId": null,
+    "name": "scoreboard",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=scoreboard",
+    "pinned": false
+  },
+  "SpecialsTracker": {
+    "modId": null,
+    "name": "SpecialsTracker",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=SpecialsTracker",
+    "pinned": false
+  },
+  "StimmCountdown": {
+    "modId": null,
+    "name": "StimmCountdown",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=StimmCountdown",
+    "pinned": false
+  },
+  "StimmsPickupIcon": {
+    "modId": null,
+    "name": "StimmsPickupIcon",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=StimmsPickupIcon",
+    "pinned": false
+  },
+  "Tree_Helper": {
+    "modId": null,
+    "name": "Tree_Helper",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=Tree_Helper",
+    "pinned": false
+  },
+  "true_level": {
+    "modId": null,
+    "name": "true_level",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=true_level",
+    "pinned": false
+  },
+  "valkyrie": {
+    "modId": null,
+    "name": "valkyrie",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=valkyrie",
+    "pinned": false
+  },
+  "vfx_swapper": {
+    "modId": null,
+    "name": "vfx_swapper",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=vfx_swapper",
+    "pinned": false
+  },
+  "weapon_cosmetics_view_improved": {
+    "modId": 346,
+    "name": "Weapon Cosmetics View Improved",
+    "note": "",
+    "pinned": false
+  },
+  "who_are_you": {
+    "modId": null,
+    "name": "who_are_you",
+    "note": "unresolved - search https://www.nexusmods.com/games/warhammer40kdarktide/mods?keyword=who_are_you",
+    "pinned": false
+  }
+}

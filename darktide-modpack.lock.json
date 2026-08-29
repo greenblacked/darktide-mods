@@ -1,0 +1,462 @@
+{
+  "schemaVersion": 1,
+  "name": "King's Darktide loadout",
+  "game": "warhammer40kdarktide",
+  "generatedAt": "2026-08-29T15:32:27Z",
+  "generatedBy": "New-ModpackLock.ps1",
+  "note": "This is a manifest of which mods this loadout uses. It contains no mod files. Download each mod from its Nexus page.",
+  "modCount": 45,
+  "loadOrder": [
+    "afk",
+    "Alfs_DMF_Extensions",
+    "animation_events",
+    "master_item_community_patch",
+    "character_cosmetics_view_improved",
+    "commodores_vestures_improved",
+    "danger_zone",
+    "Decode_Helper",
+    "DecodeMinigameSolver",
+    "DisableScreenEffects",
+    "GlobalStore",
+    "crosshair_remap",
+    "guarantee_ability_activation",
+    "guarantee_special_action",
+    "guarantee_weapon_swap",
+    "enemies_improved",
+    "FilterTrash",
+    "hub_hotkey_menus",
+    "hybrid_sprint",
+    "InspectFromSocial",
+    "KillfeedImprovements",
+    "MemLeakFix",
+    "markers_aio",
+    "NumericUI",
+    "NoBrainer",
+    "scoreboard",
+    "ovenproof_scoreboard_plugin",
+    "StimmCountdown",
+    "StimmsPickupIcon",
+    "PlayerOutlines",
+    "RecolorBossHealthBars",
+    "ReorderChars",
+    "true_level",
+    "valkyrie",
+    "who_are_you",
+    "Tree_Helper",
+    "creature_spawner",
+    "FoundYa",
+    "SpecialsTracker",
+    "vfx_swapper",
+    "weapon_cosmetics_view_improved",
+    "Plasma_Accelerated_Shooting",
+    "clear_smoke",
+    "ManyMoreTry"
+  ],
+  "mods": [
+    {
+      "folder": "Alfs_DMF_Extensions",
+      "name": "Alf's DMF Extensions",
+      "modId": 864,
+      "version": "2.0.4",
+      "versionSource": "info.json",
+      "url": "https://www.nexusmods.com/warhammer40kdarktide/mods/864",
+      "contentSha256": "91a6647fe05172e5590efe47d206ff6936a56d1f1d2dfc67bfbb9aadb89319c1"
+    },
+    {
+      "folder": "DecodeMinigameSolver",
+      "name": "DecodeMinigameSolver",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "9bb6fc606a7b7f99dc97f09c13bf83dea17ae6a65d436d296d260a044a9cd8a1"
+    },
+    {
+      "folder": "Decode_Helper",
+      "name": "Decode_Helper",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "ef233b9fdea2d0d205053dad6e399fc4608ca071b25c1796cd1a5239590dacad"
+    },
+    {
+      "folder": "DisableScreenEffects",
+      "name": "DisableScreenEffects",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "5238bb36628a7ec0a095b4db26cb8aaffd36d9750f8236c10f92fc4956bd6c28"
+    },
+    {
+      "folder": "FilterTrash",
+      "name": "FilterTrash",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "5a37e31bb520b153a1fed954e69a1a94e5830e65ad5f63752c8515f659d8a1f9"
+    },
+    {
+      "folder": "FoundYa",
+      "name": "FoundYa",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "cb1516727ca7a9b641ebd3fc05bc72ef1857fc1bf2e82b8bda5ba598b44ba84d"
+    },
+    {
+      "folder": "GlobalStore",
+      "name": "GlobalStore",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "089925369613685c5a8fa864e66b80ceac8f79c540c5d502351cd90f3e1850c6"
+    },
+    {
+      "folder": "InspectFromSocial",
+      "name": "InspectFromSocial",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "d27506b0b112228610c6e3536c81525cdd5b6bc45c8d1c888b33b02110edda46"
+    },
+    {
+      "folder": "KillfeedImprovements",
+      "name": "KillfeedImprovements",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "9e7c7cc05e05d448873904f0ba2ef5442f9c9ea03bf851f6a46512a9fc6175f3"
+    },
+    {
+      "folder": "ManyMoreTry",
+      "name": "ManyMoreTry",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "b8f4c79a236befa2fa0265ed3d2e0955f76e6111146ec66f2cb1054e7ae0e86a"
+    },
+    {
+      "folder": "MemLeakFix",
+      "name": "MemLeakFix",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "022a0813bd8f3b0c4924ff0669e13100c057b94b5e5f3420e37d222add86c355"
+    },
+    {
+      "folder": "NoBrainer",
+      "name": "NoBrainer",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "20a4fe52100b9ab33f28a5c722ba3cc433227f8b2179149a184b0283c161a70f"
+    },
+    {
+      "folder": "NumericUI",
+      "name": "NumericUI",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "c23ff64165c3473043a5ed74d8c1f6806dca15e92cf6e63bcc425f71ce9626dd"
+    },
+    {
+      "folder": "Plasma_Accelerated_Shooting",
+      "name": "Plasma_Accelerated_Shooting",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "042361d7417a804c4dfbf26b9dba4032626d2e94fdeef547464bbb536ceb881e"
+    },
+    {
+      "folder": "PlayerOutlines",
+      "name": "PlayerOutlines",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "957e20a2ee206ffc4e050d674927454cf0a7110635811a21bdb6326c2f77ccf3"
+    },
+    {
+      "folder": "RecolorBossHealthBars",
+      "name": "RecolorBossHealthBars",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "a10661a539548d095211dcd226023f23dacb9bd8ab9790066b3e5c328a66052f"
+    },
+    {
+      "folder": "ReorderChars",
+      "name": "ReorderChars",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "3b1c905b4bf79c9c887fc9cc38422a0f7212061b4ec02a4f69edd5a7f65539e1"
+    },
+    {
+      "folder": "SpecialsTracker",
+      "name": "SpecialsTracker",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "b067247fee1e6974e7b94f292dd397d3d55a9893df3ac2191caa7b5f25868e27"
+    },
+    {
+      "folder": "StimmCountdown",
+      "name": "StimmCountdown",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "8ff3e811363a8652537d64c6bc85434913b64d18a08e6999cbfb88d2163844e3"
+    },
+    {
+      "folder": "StimmsPickupIcon",
+      "name": "StimmsPickupIcon",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "7de814ffda62d617d3f485bc249e7e155d37e1d95155c488bdac679249852c58"
+    },
+    {
+      "folder": "Tree_Helper",
+      "name": "Tree_Helper",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "defde500ed2620fab47c22b3de357048ab880f2ddb7ec51d0aebda07b148ff77"
+    },
+    {
+      "folder": "afk",
+      "name": "afk",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "a51494e22877529cdb2d66bbe7366a6b50750cee0dd58f27db8841fa16f12997"
+    },
+    {
+      "folder": "animation_events",
+      "name": "animation_events",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "c1fa00eef08b406dd6932f9aa5d109561260457d644d38a52a81009fe6015eb6"
+    },
+    {
+      "folder": "character_cosmetics_view_improved",
+      "name": "Character Cosmetics View Improved",
+      "modId": 347,
+      "version": "4.7.06",
+      "versionSource": "info.json",
+      "url": "https://www.nexusmods.com/warhammer40kdarktide/mods/347",
+      "contentSha256": "5c50d4e1262701e8ff681cc90358173b213f108305cb000bc9e9d1819ef8fc08"
+    },
+    {
+      "folder": "clear_smoke",
+      "name": "clear_smoke",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "b4f8ad60623635eb9333245fb61cbd9ae0dd0848c4cf1f6c774c62b7c41bdb44"
+    },
+    {
+      "folder": "commodores_vestures_improved",
+      "name": "Commodore's Vestures Improved",
+      "modId": 348,
+      "version": "1.6.10",
+      "versionSource": "info.json",
+      "url": "https://www.nexusmods.com/warhammer40kdarktide/mods/348",
+      "contentSha256": "29cbbc6f7bef582adb83723defcc07b6fac01862fb2addd33ffc21861dbe607c"
+    },
+    {
+      "folder": "creature_spawner",
+      "name": "creature_spawner",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "9c795542541457cf7ba8165111c6369931a473adf7c3dd62930ddd7413a74185"
+    },
+    {
+      "folder": "crosshair_remap",
+      "name": "crosshair_remap",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "601400444344b000dd3ef07e12df609e8f26c09c5ceda11f65d56940abe1a229"
+    },
+    {
+      "folder": "danger_zone",
+      "name": "danger_zone",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "854d4be1525a654366b17d9c03b0b0938577e644a6ed233956853919eb59d20e"
+    },
+    {
+      "folder": "dmf",
+      "name": "dmf",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "23c60d2611183d6c73d08c9fe50f345f2758a16ccde4e6720b95d05bc8c4719f"
+    },
+    {
+      "folder": "enemies_improved",
+      "name": "Enemies Improved",
+      "modId": 809,
+      "version": "2.1.6",
+      "versionSource": "info.json",
+      "url": "https://www.nexusmods.com/warhammer40kdarktide/mods/809",
+      "contentSha256": "bdfd22b1b9b7ed3ae51bbc3ab48cf1100c76061e6303abc1de110de8185ce7fe"
+    },
+    {
+      "folder": "guarantee_ability_activation",
+      "name": "guarantee_ability_activation",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "7802882dedb8b8a368e24a33e37f02660a55f34777a9ffb156c9d854260a200f"
+    },
+    {
+      "folder": "guarantee_special_action",
+      "name": "guarantee_special_action",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "ecd02532c4f06e5e23feda73aae8ef5086798ee4d92be4174702a1a292e97237"
+    },
+    {
+      "folder": "guarantee_weapon_swap",
+      "name": "guarantee_weapon_swap",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "f3e2dafd1739d79a03710f140867a446f53ed1571a4a0d313550ad30afb0b9e2"
+    },
+    {
+      "folder": "hub_hotkey_menus",
+      "name": "hub_hotkey_menus",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "7c62ad34c56290c9d097a20069a2f1ac3c54793552eafec15e27fbe25c95e62f"
+    },
+    {
+      "folder": "hybrid_sprint",
+      "name": "hybrid_sprint",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "39dd374d447aa62d0feda24fb7dcd0de7db9bb34a2e61fbe92438b2ad9c98c62"
+    },
+    {
+      "folder": "markers_aio",
+      "name": "Markers Improved All-in-one",
+      "modId": 447,
+      "version": "2.14.4",
+      "versionSource": "info.json",
+      "url": "https://www.nexusmods.com/warhammer40kdarktide/mods/447",
+      "contentSha256": "d47e45ca6e51f49fe52685b513b933c476e8aee163dc4321c5876fb2db582cf2"
+    },
+    {
+      "folder": "master_item_community_patch",
+      "name": "master_item_community_patch",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "2acde04523f9f1ec1319beb8bd6d43ee49271b814c1d527fccce82a889b8ba12"
+    },
+    {
+      "folder": "ovenproof_scoreboard_plugin",
+      "name": "ovenproof_scoreboard_plugin",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "b4bbdb43acca0d27264b813670d354a238e653a14316783b61270ade5c52c932"
+    },
+    {
+      "folder": "scoreboard",
+      "name": "scoreboard",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "38d632b8127ee979aabdad454e837436e010778bdaee872f95cb29f1a571292e"
+    },
+    {
+      "folder": "true_level",
+      "name": "true_level",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "6590c94c766a37e5a5c8e0d71f809f5ad845c84390ccae0cf5d17ebba07b8d58"
+    },
+    {
+      "folder": "valkyrie",
+      "name": "valkyrie",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "b5b1d1fb7603c59cfe8a99c380535217619aa1ec4d03fc969c2fef9abdafd20a"
+    },
+    {
+      "folder": "vfx_swapper",
+      "name": "vfx_swapper",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "2d9c394427ce83d8f10535c01d55f5bcb5bf04c5fa36042b8574470d56a21fed"
+    },
+    {
+      "folder": "weapon_cosmetics_view_improved",
+      "name": "Weapon Cosmetics View Improved",
+      "modId": 346,
+      "version": "2.7.1",
+      "versionSource": "info.json",
+      "url": "https://www.nexusmods.com/warhammer40kdarktide/mods/346",
+      "contentSha256": "4e5487faa09fb8d93a7b18ace8194ddebb9cc14cacaf8a4cd3941f6ccb1e581d"
+    },
+    {
+      "folder": "who_are_you",
+      "name": "who_are_you",
+      "modId": null,
+      "version": null,
+      "versionSource": "none",
+      "url": null,
+      "contentSha256": "b2de5137214736b726918db5e13f228fea734f7279992484453f26308252b2a8"
+    }
+  ]
+}

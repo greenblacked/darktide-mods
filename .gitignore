@@ -1,0 +1,53 @@
+# ---------------------------------------------------------------------------
+# Secrets and machine-specific config
+# ---------------------------------------------------------------------------
+# config.json holds local paths and may hold an API key. Only the template is
+# committed. If you ever need to force-add it, don't.
+config.json
+*.key
+.env
+.env.*
+secrets.json
+
+# ---------------------------------------------------------------------------
+# Third-party mod content - NEVER commit this.
+# The mods in a Darktide loadout are other authors' work, published under the
+# Nexus Mods terms. This repo ships a manifest (darktide-modpack.lock.json)
+# that says WHICH mods to get and from where; it does not redistribute them.
+# ---------------------------------------------------------------------------
+mods/
+Darktide_Mod_Loader*/
+*.mod
+*.patch_*
+dtkit-patch.exe
+
+# ---------------------------------------------------------------------------
+# Runtime output
+# ---------------------------------------------------------------------------
+logs/
+*.log
+report-*.csv
+report-offline-*.csv
+nexus-catalog.json
+mod_backups/
+deploy_backups/
+.staging-*/
+*.bak
+
+# ---------------------------------------------------------------------------
+# Build output
+# ---------------------------------------------------------------------------
+dist/
+out/
+*.zip
+
+# ---------------------------------------------------------------------------
+# Editors / OS
+# ---------------------------------------------------------------------------
+.vs/
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+Desktop.ini
+.DS_Store

@@ -1,0 +1,12 @@
+{
+  "_comment": "Copy this to config.json and edit the paths. config.json is gitignored - never commit it, and never put your API key in it (use the NEXUS_API_KEY environment variable instead).",
+
+  "ModsRoot":         "D:\\Darktide\\mods",
+  "GamePath":         "D:\\Games\\Steam\\steamapps\\common\\Warhammer 40,000 DARKTIDE",
+  "LoaderSource":     "D:\\Darktide\\Darktide_Mod_Loader",
+  "DownloadDir":      "C:\\Users\\YOURNAME\\Downloads",
+  "BackupRoot":       "D:\\Darktide\\mod_backups",
+  "DeployBackupRoot": "D:\\Darktide\\deploy_backups",
+  "GameDomain":       "warhammer40kdarktide",
+  "ApiKey":           ""
+}
