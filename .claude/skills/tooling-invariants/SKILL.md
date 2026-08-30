@@ -99,12 +99,13 @@ must keep working, or degrade with a clear message, when `$cfg.ApiKey` is empty.
 is the tested default, not a fallback nobody exercises — `tests/OfflineUpdate.Tests.ps1`
 covers it directly.
 
-If a key is ever introduced, it goes in the `NEXUS_API_KEY` environment variable
-(`Update-DarktideMods.ps1:199`) and is never logged; `darktide.ps1:144` prints only
-whether one is set. Avoid the two existing weak spots rather than extending them:
-`-ApiKey` as a command-line parameter (`Update-DarktideMods.ps1:82`) leaks into process
-listings and shell history, and `Initialize-DarktideConfig.ps1` will persist a key into
-`config.json` in plaintext.
+If a key is ever introduced, it goes in the `NEXUS_API_KEY` environment variable and is
+never logged; `darktide.ps1` prints only whether one is set, never the value. There is
+deliberately **no `-ApiKey` parameter** — it existed once and was removed, because
+anything passed on a command line shows up in process listings and shell history. Do not
+add it back. The remaining soft spot is `Initialize-DarktideConfig.ps1`, which will
+persist a key into `config.json` in plaintext with default permissions; prefer the
+environment variable.
 
 ## Never redistribute mod content
 

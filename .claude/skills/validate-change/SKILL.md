@@ -77,8 +77,17 @@ environmental. Recognising the three signatures saves you from chasing phantom b
 
 `Invoke-Tests.ps1` detects a non-Windows host and says so rather than letting you draw
 the wrong conclusion, then falls back to the validator. `-AllowNonWindows` forces the
-Pester run anyway, which is occasionally useful — `-Path Lock` and `-Path Update`, for
-instance, contain assertions that are genuinely platform-independent and do pass.
+Pester run anyway, which is occasionally useful — `-Path Lock` is fully
+platform-independent and passes 10/10 every time, which is why the CI Linux job asserts
+that one specifically.
+
+Do not build anything on the off-Windows result of `-Path Update`: its two
+`Expand-ModArchive` traversal tests flake there, passing in some runs and failing in
+others (observed 20-22 failures across four identical runs of the same commit). The cause
+is the guard comparing `'\'`-terminated paths against POSIX ones, so the outcome depends
+on the entry names rather than on anything meaningful. It has never flaked on
+`windows-latest`, which is the platform it is written for. If you need a stable local
+signal off Windows, use `-Path Lock` or the validator.
 
 Resist the temptation to "fix" these failures by making the tools cross-platform. The
 backslash handling is deliberate, the target platform is Windows, and the tests assert

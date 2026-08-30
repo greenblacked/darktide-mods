@@ -79,7 +79,6 @@ param(
     [string]   $ModsRoot,
     [string]   $DownloadDir,
     [string]   $BackupRoot,
-    [string]   $ApiKey,
     [string]   $GameDomain,
     [string[]] $Only,
     [string[]] $Skip,
@@ -193,8 +192,10 @@ function Get-Configuration {
     if ($DownloadDir) { $cfg.DownloadDir = $DownloadDir }
     if ($BackupRoot)  { $cfg.BackupRoot  = $BackupRoot }
     if ($GameDomain)  { $cfg.GameDomain  = $GameDomain }
-    if ($ApiKey)      { $cfg.ApiKey      = $ApiKey }
 
+    # The key deliberately has no -ApiKey parameter: anything passed on the command line
+    # is visible in process listings and lands in shell history. Environment variable
+    # first, config file second.
     # Environment variable is the preferred place for the key - keeps it out of the repo.
     if (-not $cfg.ApiKey -and $env:NEXUS_API_KEY) { $cfg.ApiKey = $env:NEXUS_API_KEY }
 
