@@ -151,8 +151,8 @@ have_pwsh   || missing=1
 have_pester || missing=1
 
 if [ "$CHECK_ONLY" -eq 1 ]; then
-    have_pwsh   && log "pwsh:   present" || log "pwsh:   MISSING"
-    have_pester && log "Pester: present" || log "Pester: MISSING"
+    if have_pwsh;   then log "pwsh:   present"; else log "pwsh:   MISSING"; fi
+    if have_pester; then log "Pester: present"; else log "Pester: MISSING"; fi
     [ "$missing" -eq 0 ] && exit 0 || exit 3
 fi
 
