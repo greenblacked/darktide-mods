@@ -34,10 +34,17 @@ marker file (`binaries\Darktide.exe`, `bundle\bundle_database.data`, and friends
 is what prevents a mistyped `GamePath` in `config.json` from turning a recursive delete
 loose on `C:\`. Any new code path that writes into the game folder goes through it.
 
-**`Assert-GameNotRunning`** refuses to mutate while `Darktide.exe` holds file locks.
-Note it currently exists twice, in `Deploy-DarktideMods.ps1` and
-`Update-DarktideMods.ps1`, with wording that has already drifted. If you touch both,
-consider consolidating rather than adding a third copy.
+**`Assert-GameNotRunning`** refuses to mutate while `Darktide.exe` holds file locks. It
+is gated on `-Apply` in both scripts: a dry run writes nothing, so it has no business
+demanding the game be closed.
+
+It exists twice, in `Deploy-DarktideMods.ps1` and `Update-DarktideMods.ps1`, and the two
+bodies are deliberately byte-identical apart from a comment naming the other file. They
+had drifted once. Keeping them duplicated rather than extracting a shared file is a
+choice: each tool is a standalone script a user can run on its own, and the release ships
+them from an explicit allow-list, so a shared dependency would be one more thing to keep
+in that list and one more way a copied-out script breaks. If you change one, change the
+other, and do not add a third.
 
 ## Destructive operations are opt-in
 
