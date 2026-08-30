@@ -492,6 +492,18 @@ and the Steam registry keys, and build `\`-separated paths, and the tests assert
 that. On Linux or macOS `Invoke-Tests.ps1` says so and runs the cross-platform repository
 validator instead; `-AllowNonWindows` forces the Pester run if you want to see it fail.
 
+`Invoke-Tests.ps1` exit codes, so a script can tell a passing suite from a skipped one:
+
+| Code | Meaning |
+|---|---|
+| `0` | every check that was asked for ran and passed |
+| `1` | something ran and failed |
+| `3` | nothing failed, but the Pester suite was skipped because this is not Windows |
+
+**`3` is not success** — it means the change is unverified. It is what you get by default
+off Windows, where only the validator can run. `Test-Modpack.ps1` on its own is the usual
+0 for clean, non-zero for a failure.
+
 What it covers:
 
 | Area | Checks |
@@ -551,6 +563,7 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser
 | `Test-Modpack.ps1` | Repository validator, used by CI. |
 | `Invoke-Tests.ps1` | Runs the Pester suite, then the validator. |
 | `tests/` | Pester tests. Sandboxed — no game, no key, no network. |
+| `.claude/skills/` | Repo skills for coding agents: how to validate a change, the safety invariants, and a script that sets up a test environment from scratch. |
 | `config.example.json` | Config template. Copy to `config.json` (gitignored). |
 | `mods-map.json` | Folder → Nexus mod ID, plus `pinned` flags. |
 | `darktide-modpack.lock.json` | The loadout manifest. |
