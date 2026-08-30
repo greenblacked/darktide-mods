@@ -49,12 +49,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Cache PowerShell modules
-        uses: actions/cache@v6
-        with:
-          path: ~/Documents/PowerShell/Modules
-          key: psmodules-${{ runner.os }}-psscriptanalyzer-pester
-
       - name: Install PSScriptAnalyzer and Pester
         shell: pwsh
         run: |
@@ -91,6 +85,63 @@ jobs:
           $md += "| Load order entries | $(@($lock.loadOrder).Count) |"
           $md += "| Lockfile generated | $($lock.generatedAt) |"
           $md | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+  # ---------------------------------------------------------------------------
+  # Linux guard. The validator claims to be cross-platform and Invoke-Tests.ps1
+  # claims to refuse the suite off Windows - neither claim is observable from a
+  # windows-latest job, so both regressed silently until they were caught by hand.
+  # ---------------------------------------------------------------------------
+  cross-platform:
+    name: Validator and guard on Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # The validator must stay genuinely cross-platform. A Windows-only path
+      # pattern here is invisible on the Windows job but breaks this one.
+      - name: Validator runs clean on Linux
+        shell: pwsh
+        run: ./Test-Modpack.ps1
+
+      # Exit 3 means "nothing failed, but the suite was skipped". Asserting the
+      # code, not just the text, is what stops it silently reverting to 0 - which
+      # would let a caller read a skipped suite as a passing one.
+      - name: Invoke-Tests refuses the suite and reports it as unverified
+        run: |
+          # No pipelines and no '|| true' around the runs being measured: both
+          # clobber $? / PIPESTATUS and would make every assertion read 0, which
+          # is exactly the false pass this step exists to catch.
+          check() {
+            local want=$1 label=$2; shift 2
+            set +e
+            "$@" >/tmp/invoke-tests.log 2>&1
+            local got=$?
+            set -e
+            if [ "$got" -ne "$want" ]; then
+              echo "::error::$label - expected exit $want, got $got"
+              tail -n 20 /tmp/invoke-tests.log
+              return 1
+            fi
+            echo "ok: $label -> $got"
+          }
+
+          check 3 "validator passed, suite skipped" \
+                pwsh -NoProfile -File ./Invoke-Tests.ps1
+          check 3 "nothing can run (-SkipValidator off Windows)" \
+                pwsh -NoProfile -File ./Invoke-Tests.ps1 -SkipValidator
+          check 0 "-AllowNonWindows genuinely runs Pester" \
+                pwsh -NoProfile -File ./Invoke-Tests.ps1 -AllowNonWindows -Path Lock -Output None -SkipValidator
+        shell: bash
+
+      # The setup script is the only shell in the repo and nothing else checks it.
+      - name: Lint the test-environment setup script
+        run: |
+          set -euo pipefail
+          script=.claude/skills/validate-change/scripts/setup-test-env.sh
+          bash -n "$script"
+          shellcheck "$script"
+          "$script" --check || [ $? -eq 3 ]   # 3 = tools absent, which is expected here
+        shell: bash
 
   # ---------------------------------------------------------------------------
   # Build a release zip and publish it.
