@@ -94,7 +94,8 @@ left standing is worse than a gap in the version sequence.
 
 ## What the job cannot do here
 
-`refresh-lock` is the other manual task and it needs a `NEXUS_API_KEY` repository secret.
-This setup runs without a key, so that task will fail on the missing-secret check by
-design. It is unrelated to releasing — release needs no secret, only the built-in
-`github.token` with `contents: write` scoped to that job alone.
+`refresh-lock` is the other publishing task. It runs on a weekly schedule and on
+manual dispatch, and it needs a `NEXUS_API_KEY` repository secret. This setup runs
+without a key, so that task will fail on the missing-secret check by design. It is
+unrelated to releasing — release needs no secret, only the built-in `github.token`
+with `contents: write` scoped to that job alone.
