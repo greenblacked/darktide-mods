@@ -160,9 +160,20 @@ jobs:
       - name: Resolve version
         id: ver
         shell: pwsh
+        # The input arrives through the environment, never pasted into the script
+        # body. Interpolating it inside a quoted PowerShell string lets a value
+        # containing a quote close that string and run arbitrary code, in a job
+        # that holds contents:write and a release token.
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          $v = '${{ inputs.version }}'
+          $v = "$($env:INPUT_VERSION)".Trim()
           if (-not $v) { $v = (Get-Date -Format 'yyyy.MM.dd') + '.' + $env:GITHUB_RUN_NUMBER }
+          # Constrain the shape before it reaches a tag name, a filename and
+          # GITHUB_OUTPUT. A newline here would forge extra step outputs.
+          if ($v -notmatch '^[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}$') {
+              throw "Refusing version '$v': expected letters, digits and . + _ - only (max 64 chars)."
+          }
           "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           Write-Host "Release version: $v"
 
@@ -209,8 +220,10 @@ jobs:
 
       - name: Create archive
         shell: pwsh
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          $v = '${{ steps.ver.outputs.version }}'
+          $v = $env:VERSION
           Compress-Archive -Path 'dist/darktide-mods/*' -DestinationPath "dist/darktide-mods-$v.zip" -Force
           $h = (Get-FileHash "dist/darktide-mods-$v.zip" -Algorithm SHA256).Hash.ToLower()
           "$h  darktide-mods-$v.zip" | Out-File "dist/darktide-mods-$v.zip.sha256" -Encoding ascii
@@ -250,9 +263,11 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          PRERELEASE: ${{ inputs.prerelease }}
         run: |
-          $v = '${{ steps.ver.outputs.version }}'
-          $pre = if ('${{ inputs.prerelease }}' -eq 'true') { '--prerelease' } else { '' }
+          $v = $env:VERSION
+          $pre = if ($env:PRERELEASE -eq 'true') { '--prerelease' } else { '' }
           gh release create "v$v" `
             "dist/darktide-mods-$v.zip" `
             "dist/darktide-mods-$v.zip.sha256" `
