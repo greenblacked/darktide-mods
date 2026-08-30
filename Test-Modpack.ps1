@@ -237,6 +237,65 @@ Test-Case 'no agent attribution committed' {
     if ($hits) { throw "Agent attribution found in $($hits -join '; ')" }
 }
 
+Test-Case 'no agent attribution in commit messages' {
+    # The file check above cannot see commit messages, which is how an agent tool's
+    # Co-Authored-By trailer once reached this repository and put a bot in the GitHub
+    # contributors list. Any agent, not one vendor.
+    #
+    # The names are assembled from fragments for the same reason the marker list above
+    # is: spelled out, this file would be the thing its own check reports. Add to the
+    # list when a new tool appears - that is cheaper than another history rewrite.
+    Push-Location $root
+    try {
+        $eap = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            # %B (raw body) keeps the original line breaks. A format that packs fields
+            # onto one line glues the trailer to the subject, and then the '^' anchor
+            # below never matches - which is exactly how an earlier draft passed on a
+            # commit it should have caught.
+            $log = @(& git log --format='%B%x1e' 2>$null)
+            if ($LASTEXITCODE -ne 0 -or -not $log) {
+                Add-Warning 'not a git checkout, or no history available - commit messages not scanned'
+                return
+            }
+        } finally { $ErrorActionPreference = $eap }
+
+        $agents = @(
+            [char]0x57 + 'arp',
+            [char]0x43 + 'laude',
+            [char]0x43 + 'opilot',
+            [char]0x43 + 'ursor',
+            [char]0x44 + 'evin',
+            [char]0x43 + 'odex',
+            [char]0x41 + 'ider'
+        )
+        $text   = $log -join "`n"
+        $count  = @($text -split "`u{001e}" | Where-Object { $_.Trim() }).Count
+
+        $hits = @()
+        foreach ($line in ($text -split "`n")) {
+            $l = $line.Trim()
+            if ($l -match '^(?i)co-authored-by:\s*(.+)$') {
+                $who = $matches[1]
+                foreach ($a in $agents) {
+                    if ($who -match "(?i)$([regex]::Escape($a))") { $hits += "trailer credits '$who'" }
+                }
+                if ($who -match '(?i)(agent|bot)@') { $hits += "trailer credits '$who'" }
+            }
+            if ($l -match '(?i)^generated (by|with) ') { $hits += "message contains '$l'" }
+        }
+
+        # A shallow clone sees only what was fetched, so say how much was actually read.
+        if ($count -lt 5) {
+            Add-Warning "only $count commit(s) reachable - a shallow clone hides the rest of the history"
+        }
+        if ($hits) {
+            throw "Agent attribution in commit messages: $(($hits | Select-Object -Unique) -join '; '). Rewriting published history is the only fix, so keep it out in the first place."
+        }
+    } finally { Pop-Location }
+}
+
 Test-Case '.gitignore covers the important things' {
     $gi = Join-Path $root '.gitignore'
     if (-not (Test-Path -LiteralPath $gi)) { throw '.gitignore is missing' }
