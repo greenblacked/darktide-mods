@@ -71,12 +71,25 @@ Resist the temptation to "fix" these failures by making the tools cross-platform
 backslash handling is deliberate, the target platform is Windows, and the tests assert
 Windows semantics on purpose.
 
-## Getting Pester when PSGallery is unreachable
+## Setting up a machine that cannot run any of this yet
 
-Sandboxed environments frequently block `www.powershellgallery.com`, which makes
-`Install-Module Pester` fail. There is a way through that does not need the gallery or a
-dotnet SDK — see `references/pester-without-psgallery.md`. Only go there if the normal
-install is actually blocked; it is a workaround, not the recommended path.
+On a fresh Linux box there is usually no `pwsh` at all, and `www.powershellgallery.com`
+is often blocked, so `Install-Module Pester` fails too. Rather than rediscover that each
+time, run:
+
+```bash
+.claude/skills/validate-change/scripts/setup-test-env.sh          # install what is missing
+.claude/skills/validate-change/scripts/setup-test-env.sh --check  # report only
+```
+
+It installs PowerShell 7, tries PSGallery first, and falls back to building Pester 5 from
+source using the Roslyn assemblies inside pwsh (there is no dotnet SDK in these
+environments). It is idempotent, so re-running it is safe and cheap. Exit codes: 0 ready,
+1 install failed, 2 bad usage, 3 `--check` found something missing.
+
+`references/pester-without-psgallery.md` explains what the script does step by step and
+why each step is needed — read it if the script fails or you need to adapt it, not
+otherwise.
 
 The normal path, when the gallery is reachable:
 
