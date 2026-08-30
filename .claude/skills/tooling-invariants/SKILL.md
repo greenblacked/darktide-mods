@@ -119,8 +119,10 @@ and the target platform is Windows. See the `validate-change` skill for what thi
 when running the suite.
 
 The one place cross-platform correctness does matter is `Test-Modpack.ps1`, which is
-meant to run anywhere. Its `dist|out` exclusion regexes are currently backslash-only
-(lines 58, 80, 178) and so never match on a POSIX host — a known gap, fair game to fix.
+meant to run anywhere. Its `dist|out|node_modules` and `.git` exclusion regexes accept
+either separator (`[\\/]`) for exactly that reason — they were backslash-only once, which
+silently made them no-ops on Linux and macOS. Keep any new path pattern in that file
+separator-agnostic; the rest of the codebase is free to assume `\`.
 
 ## House style
 
