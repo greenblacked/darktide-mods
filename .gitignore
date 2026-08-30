@@ -1,10 +1,6 @@
 # ---------------------------------------------------------------------------
 # Secrets and machine-specific config
 # ---------------------------------------------------------------------------
-# Local Claude skills and notes for this repo - deliberately not published.
-.claude/
-CLAUDE.md
-
 # config.json holds local paths and may hold an API key. Only the template is
 # committed. If you ever need to force-add it, don't.
 config.json
