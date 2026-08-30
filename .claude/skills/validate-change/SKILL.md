@@ -20,7 +20,7 @@ pwsh -NoProfile -File ./Test-Modpack.ps1
 Pure parsing and JSON, no execution of the tools themselves, so it works on Linux and
 macOS as happily as on Windows. It AST-parses every `.ps1`, validates every `.json`,
 checks the lockfile is internally consistent (`modCount` matches, no duplicate folders,
-every load-order entry exists), and enforces the distribution rules — no committed mod
+every load-order entry exists), and enforces the distribution rules: no committed mod
 folders, no leaked API key, `config.json` untracked.
 
 Exit 0 means clean. Two warnings are expected and are not failures: the ~39 mods with no
@@ -36,9 +36,9 @@ and this setup runs without one. Treat it as informational, not as a task.
 .\Invoke-Tests.ps1 -Output Detailed   # per-test output
 ```
 
-Roughly 150 tests across 8 files (153 as this was written), all sandboxed under `$env:TEMP` — they build a fake game
-folder, a fake staging tree and real zip archives, and touch nothing real and nothing
-networked. Safe to run at any time.
+Roughly 150 tests across 8 files (153 as this was written), all sandboxed under
+`$env:TEMP`. They build a fake game folder, a fake staging tree and real zip archives,
+and touch nothing real and nothing networked. Safe to run at any time.
 
 Its exit codes are the thing to read, not the last line of output:
 
@@ -124,8 +124,8 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
 
 Say which gate ran and on what. "The validator passes; the Pester suite needs Windows so
 I pushed the branch and CI is green" is a true and useful statement. "Tests pass" after
-running only the validator is not — it skips 153 of the checks and hides exactly the
-class of bug the suite exists to catch.
+running only the validator is not. It skips the whole suite, which is the part that
+would catch the class of bug the validator cannot see.
 
 If CI is red, read the failing step's log before theorising. The suite names the failing
 `Describe`/`Context`/`It` path, which maps directly onto a file in `tests/`.

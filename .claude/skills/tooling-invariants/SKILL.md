@@ -5,12 +5,12 @@ description: The safety properties and house conventions that every change to th
 
 # Invariants for the darktide-mods tooling
 
-Line references below are signposts, not addresses — they drift as the files change. If
+Line references below are signposts, not addresses; they drift as the files change. If
 one does not land where you expect, grep for the function or the message text instead;
 the named symbol is the durable part.
 
 These scripts copy, replace and delete files inside a real game installation. A
-regression here does not produce a failing test in someone's CI — it produces a broken
+regression here does not produce a failing test in someone's CI. It produces a broken
 Darktide install and a lost mod loadout. The properties below are what stand between the
 code and that outcome. Preserve them; if a change genuinely requires weakening one, say
 so explicitly rather than letting it erode quietly.
@@ -73,13 +73,13 @@ backup, and a bound on how many backups accumulate.
 `Expand-ModArchive` (`Update-DarktideMods.ps1:730`) is the zip-slip guard, and the order
 of its steps is load-bearing:
 
-1. Replace `\` with `/` **first** — zip entries may legally use either, and a
+1. Replace `\` with `/` **first**, because zip entries may legally use either and a
    backslash-only traversal walks straight past a forward-slash-only pattern.
 2. Reject `..` segments and absolute paths (`^([A-Za-z]:|/)`).
 3. Resolve the target with `GetFullPath` and confirm it still sits under the
    destination root.
 
-Step 3 is not redundant with step 2 — it is what catches whatever the pattern missed.
+Step 3 is not redundant with step 2. It is what catches whatever the pattern missed.
 The suite covers all three (`tests/Update.Tests.ps1`), including the case where a hostile
 archive must be rejected *without* destroying the mod it was meant to replace.
 
@@ -103,7 +103,7 @@ costs nothing day to day.
 
 The invariant that matters here: **do not let the API become required**. Every code path
 must keep working, or degrade with a clear message, when `$cfg.ApiKey` is empty. Offline
-is the tested default, not a fallback nobody exercises — `tests/OfflineUpdate.Tests.ps1`
+is the tested default, not a fallback nobody exercises: `tests/OfflineUpdate.Tests.ps1`
 covers it directly.
 
 If a key is ever introduced, it goes in the `NEXUS_API_KEY` environment variable and is
@@ -116,7 +116,7 @@ environment variable.
 
 ## Never redistribute mod content
 
-The lockfile is a **manifest** — folder names, versions, load order, Nexus links. Mod
+The lockfile is a **manifest**: folder names, versions, load order, Nexus links. Mod
 files belong to their authors and are not this repo's to ship. Three independent
 mechanisms enforce this and all three should stay: `.gitignore` excludes `mods/`,
 `*.mod` and loadout zips; `Test-Modpack.ps1` fails if mod folders or an API key are
@@ -132,14 +132,14 @@ when running the suite.
 
 The one place cross-platform correctness does matter is `Test-Modpack.ps1`, which is
 meant to run anywhere. Its `dist|out|node_modules` and `.git` exclusion regexes accept
-either separator (`[\\/]`) for exactly that reason — they were backslash-only once, which
+either separator (`[\\/]`) for exactly that reason. They were backslash-only once, which
 silently made them no-ops on Linux and macOS. Keep any new path pattern in that file
 separator-agnostic; the rest of the codebase is free to assume `\`.
 
 ## House style
 
 Every script opens with `Set-StrictMode -Version Latest` and
-`$ErrorActionPreference = 'Stop'` — all ten do, without exception. New scripts follow.
+`$ErrorActionPreference = 'Stop'`. All ten do, without exception; new scripts follow.
 
 - Parameters are PascalCase. Switches that permit something otherwise refused use an
   `Allow*` prefix (`-AllowFailure`, `-AllowNonWindows`); ones that omit work use `Skip*`
