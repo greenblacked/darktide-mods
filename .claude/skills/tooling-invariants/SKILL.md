@@ -5,6 +5,10 @@ description: The safety properties and house conventions that every change to th
 
 # Invariants for the darktide-mods tooling
 
+Line references below are signposts, not addresses — they drift as the files change. If
+one does not land where you expect, grep for the function or the message text instead;
+the named symbol is the durable part.
+
 These scripts copy, replace and delete files inside a real game installation. A
 regression here does not produce a failing test in someone's CI — it produces a broken
 Darktide install and a lost mod loadout. The properties below are what stand between the
