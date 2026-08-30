@@ -528,8 +528,12 @@ The two jobs that publish something stay manual — they are gated on the event 
 | Task | Trigger | Runs on | Does |
 |---|---|---|---|
 | `validate` | push, PR, manual | windows-latest | The 153-test Pester suite, then PSScriptAnalyzer, AST parse of every script, JSON validity, lockfile consistency, and hygiene checks (no committed mod files, no leaked API key, `config.json` untracked). |
+| `cross-platform` | push, PR | ubuntu-latest | The validator on Linux, the `Invoke-Tests.ps1` exit-code contract, and shellcheck on the setup script — the checks a Windows-only job cannot see. |
 | `release` | manual only | windows-latest | Validate, package the allow-listed files, publish a GitHub Release with a SHA-256 and a generated mod table. |
 | `refresh-lock` | manual only | ubuntu-latest | Query the Nexus API for each mapped mod's current version and open a PR with the diff. Metadata only — needs the `NEXUS_API_KEY` secret; a free account is enough. |
+
+Both manual tasks wait on `validate` **and** `cross-platform`, so a red check on either
+platform stops a release or a lockfile PR before it starts.
 
 Pushing again while a run is in flight cancels the older one (`concurrency`), so only the
 newest commit on a branch is checked. Manual runs are never cancelled — a half-finished

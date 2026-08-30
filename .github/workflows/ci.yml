@@ -46,6 +46,7 @@ jobs:
   validate:
     name: Lint and validate
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 
@@ -94,6 +95,7 @@ jobs:
   cross-platform:
     name: Validator and guard on Linux
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
@@ -149,9 +151,12 @@ jobs:
   # ---------------------------------------------------------------------------
   release:
     name: Build and publish release
-    needs: validate
+    # Both checks, not just the Windows one: publishing is irreversible, so a red
+    # Linux guard should stop it too.
+    needs: [validate, cross-platform]
     if: github.event_name == 'workflow_dispatch' && inputs.task == 'release'
     runs-on: windows-latest
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:
@@ -282,9 +287,10 @@ jobs:
   # ---------------------------------------------------------------------------
   refresh-lock:
     name: Refresh lockfile from Nexus
-    needs: validate
+    needs: [validate, cross-platform]
     if: github.event_name == 'workflow_dispatch' && inputs.task == 'refresh-lock'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
       pull-requests: write
@@ -354,7 +360,9 @@ jobs:
 
       - name: Open pull request
         if: env.CHANGED != '0'
-        uses: peter-evans/create-pull-request@v8
+        # Pinned to the commit v8 pointed at on 2026-08-30. A tag can be moved;
+        # this job has contents:write and pull-requests:write, so it should not be.
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1  # v8
         with:
           commit-message: 'chore: refresh lockfile versions from Nexus'
           branch: ci/refresh-lockfile

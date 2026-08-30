@@ -16,9 +16,10 @@ un-downloaded, and it is someone else's copyrighted work.
 
 ## Before triggering anything
 
-1. **CI is green on the commit you are releasing.** The release job `needs: validate`, so
-   it will not start otherwise — but a green run also means the 153 tests and the
-   validator both passed on Windows, which is what you are actually shipping.
+1. **CI is green on the commit you are releasing.** The release job needs both the
+   Windows job and the Linux guard, so it will not start otherwise — and a green pair
+   means the full Pester suite and the validator passed on Windows, which is what you
+   are actually shipping.
 2. **The lockfile is current.** Release notes are generated *from*
    `darktide-modpack.lock.json` — the mod table, the version column, the Nexus links. A
    stale lockfile produces a release that misdescribes the loadout. Regenerate with
