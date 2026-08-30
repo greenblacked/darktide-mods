@@ -1,6 +1,10 @@
 # ---------------------------------------------------------------------------
 # Secrets and machine-specific config
 # ---------------------------------------------------------------------------
+# Per-machine agent settings (tool permissions and the like). The skills under
+# .claude/skills/ are tracked; this file is local to whoever is working here.
+.claude/settings.local.json
+
 # config.json holds local paths and may hold an API key. Only the template is
 # committed. If you ever need to force-add it, don't.
 config.json
