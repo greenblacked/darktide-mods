@@ -161,8 +161,11 @@ function Assert-ValidStaging {
 }
 
 function Assert-GameNotRunning {
-    $p = Get-Process -Name 'Darktide' -ErrorAction SilentlyContinue
-    if ($p) { throw "Darktide.exe is running (PID $($p.Id -join ', ')). Close the game first." }
+    # Twin of the copy in Update-DarktideMods.ps1 - keep the two identical.
+    $proc = Get-Process -Name 'Darktide' -ErrorAction SilentlyContinue
+    if ($proc) {
+        throw "Darktide.exe is running (PID $($proc.Id -join ', ')). Close the game before changing mod files."
+    }
 }
 
 function Get-SyncPendingCode {
@@ -213,7 +216,10 @@ Write-Host  "Backups : $($cfg.DeployBackupRoot)"
 Write-Host  "Mode    : $(if ($Apply) { 'APPLY' } else { 'DRY RUN (pass -Apply to write)' })"
 Write-Host  ''
 
-Assert-GameNotRunning
+# Only when we are actually going to write. A dry run touches nothing, so there is no
+# reason to make someone close the game just to see the plan - and Update-DarktideMods.ps1
+# gates the same guard on -Apply.
+if ($Apply) { Assert-GameNotRunning }
 
 # ---- Plan --------------------------------------------------------------------------
 

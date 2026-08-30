@@ -224,9 +224,10 @@ function Test-ModsRoot {
 }
 
 function Assert-GameNotRunning {
+    # Twin of the copy in Deploy-DarktideMods.ps1 - keep the two identical.
     $proc = Get-Process -Name 'Darktide' -ErrorAction SilentlyContinue
     if ($proc) {
-        throw "Darktide.exe is running (PID $($proc.Id -join ', ')). Close the game before applying updates."
+        throw "Darktide.exe is running (PID $($proc.Id -join ', ')). Close the game before changing mod files."
     }
 }
 
