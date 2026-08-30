@@ -40,6 +40,19 @@ and this setup runs without one. Treat it as informational, not as a task.
 folder, a fake staging tree and real zip archives, and touch nothing real and nothing
 networked. Safe to run at any time.
 
+Its exit codes are the thing to read, not the last line of output:
+
+| Code | Meaning |
+|---|---|
+| 0 | every check asked for ran and passed |
+| 1 | something ran and failed |
+| 3 | nothing failed, but the Pester suite was skipped because this is not Windows |
+
+**3 is not success.** It means the change is unverified — the validator passed and the
+153 tests never executed. Off Windows that is the code you get by default, which is the
+point: a script or a habit that treats 0-or-nothing as "green" cannot mistake it for a
+passing suite.
+
 **3. CI on `windows-latest` — the actual verdict.**
 
 `.github/workflows/ci.yml` runs on every push to every branch and every PR to `main`.

@@ -27,6 +27,13 @@
 
 .EXAMPLE
     .\Invoke-Tests.ps1 -Path Deploy -Output Detailed
+
+.NOTES
+    Exit codes - a caller needs to tell "everything passed" from "the suite never ran":
+        0  every check that was asked for ran and passed
+        1  something ran and failed
+        3  nothing failed, but the Pester suite was skipped because this is not Windows.
+           Treat as "not verified", not as success. -AllowNonWindows forces the run.
 #>
 
 [CmdletBinding()]
@@ -49,11 +56,25 @@ $onWindows = ($PSVersionTable.PSEdition -eq 'Desktop') -or $IsWindows
 if (-not $onWindows -and -not $AllowNonWindows) {
     Write-Host "The Pester suite needs Windows - $($PSVersionTable.Platform) cannot run robocopy, the Steam registry keys or '\'-separated paths." -ForegroundColor Yellow
     Write-Host 'Use -AllowNonWindows to run it anyway, or push the branch and let CI run it on windows-latest.' -ForegroundColor Yellow
-    if ($SkipValidator) { exit 1 }
+    # Exit 3, not 0, even when the validator passes. Returning success here would let a
+    # caller - a human, a pre-push hook, another script - read "validator passed" as
+    # "the 153-test suite passed", which is the exact confusion this guard exists to stop.
+    if ($SkipValidator) {
+        Write-Host 'Nothing ran: the suite needs Windows and -SkipValidator disables the validator.' -ForegroundColor Red
+        exit 3
+    }
     Write-Host ''
     Write-Host '--- Repository validator (cross-platform) ---' -ForegroundColor Cyan
     & (Join-Path $PSScriptRoot 'Test-Modpack.ps1')
-    exit $LASTEXITCODE
+    $validator = if (Test-Path Variable:LASTEXITCODE) { $LASTEXITCODE } else { 0 }
+    Write-Host ''
+    if ($validator -ne 0) {
+        Write-Host 'Validator failed.' -ForegroundColor Red
+        exit 1
+    }
+    Write-Host 'Validator passed. The Pester suite did NOT run - this change is not verified.' -ForegroundColor Yellow
+    Write-Host 'Push the branch and read the windows-latest CI job for the real verdict.' -ForegroundColor Yellow
+    exit 3
 }
 
 $pester = Get-Module -ListAvailable -Name Pester |
