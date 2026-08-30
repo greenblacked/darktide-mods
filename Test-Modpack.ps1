@@ -55,7 +55,7 @@ Write-Host 'PowerShell syntax' -ForegroundColor Cyan
 # ---------------------------------------------------------------------------
 
 $scripts = @(Get-ChildItem -LiteralPath $root -Filter '*.ps1' -File -Recurse |
-             Where-Object { $_.FullName -notmatch '\\(dist|out)\\' })
+             Where-Object { $_.FullName -notmatch '[\\/](dist|out)[\\/]' })
 
 if (-not $scripts) { $script:Failures.Add('No .ps1 files found - wrong directory?') }
 
@@ -77,7 +77,7 @@ Write-Host 'JSON validity' -ForegroundColor Cyan
 # ---------------------------------------------------------------------------
 
 $jsons = @(Get-ChildItem -LiteralPath $root -Filter '*.json' -File -Recurse |
-           Where-Object { $_.FullName -notmatch '\\(dist|out|node_modules)\\' })
+           Where-Object { $_.FullName -notmatch '[\\/](dist|out|node_modules)[\\/]' })
 
 foreach ($j in $jsons) {
     Test-Case "valid JSON: $($j.Name)" {
@@ -175,7 +175,7 @@ Test-Case 'no mod folders committed' {
 
 Test-Case 'no API key committed' {
     $suspect = @(Get-ChildItem -LiteralPath $root -File -Recurse -Include '*.json', '*.ps1', '*.md', '*.yml' -ErrorAction SilentlyContinue |
-                 Where-Object { $_.FullName -notmatch '\\\.git\\' })
+                 Where-Object { $_.FullName -notmatch '[\\/]\.git[\\/]' })
     foreach ($f in $suspect) {
         $text = Get-Content -LiteralPath $f.FullName -Raw -Encoding UTF8
         # Nexus personal API keys are long base64-ish strings. Flag any long opaque
