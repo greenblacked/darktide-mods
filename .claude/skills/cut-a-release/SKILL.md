@@ -1,13 +1,14 @@
 ---
 name: cut-a-release
-description: How to publish a darktide-mods release safely - the preconditions, the version input and what it accepts, what the package allow-list ships and what must never leave the repo, and how to verify the published artifact. Use whenever the user wants to cut, publish, tag or ship a release, asks about the release workflow or the release notes, or wants to know why a release run failed. Reach for it before triggering the release job, because the job publishes publicly and there is no undo that unpublishes a zip someone already downloaded.
+description: How to publish a darktide-mods release safely - the preconditions, the version input and what it accepts, what the package allow-list ships and what must never leave the repo, and how to verify the published artifact. Use whenever the user wants to cut, publish, tag or ship a release, asks about the release workflow, or wants to know why a release run failed. For the wording of the notes themselves see the sepia skill; this one covers the mechanics and what is safe to ship. Reach for it before triggering the release job, because the job publishes publicly and there is no undo that unpublishes a zip someone already downloaded.
 ---
 
 # Cutting a release
 
-The release job is `workflow_dispatch`-only and has never been run — there are no tags in
-this repository yet. Treat the first one as a real first run: nothing about this path has
-been exercised in anger, so verify rather than assume.
+The release job is `workflow_dispatch`-only. Check whether it has ever actually run —
+`git tag -l`, or the Releases page — before assuming this path is proven; as this was
+written there were no tags at all. If yours is the first, treat it as a genuine first
+run and verify each step rather than trusting it.
 
 Publishing is the one irreversible thing this repo does. A wrong lockfile can be
 corrected in the next release; a mod file that escapes into a public zip cannot be
