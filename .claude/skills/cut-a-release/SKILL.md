@@ -5,8 +5,8 @@ description: How to publish a darktide-mods release safely - the preconditions, 
 
 # Cutting a release
 
-The release job is `workflow_dispatch`-only. Check whether it has ever actually run —
-`git tag -l`, or the Releases page — before assuming this path is proven; as this was
+The release job is `workflow_dispatch`-only. Check whether it has ever actually run
+(`git tag -l`, or the Releases page) before assuming this path is proven; as this was
 written there were no tags at all. If yours is the first, treat it as a genuine first
 run and verify each step rather than trusting it.
 
@@ -17,11 +17,11 @@ un-downloaded, and it is someone else's copyrighted work.
 ## Before triggering anything
 
 1. **CI is green on the commit you are releasing.** The release job needs both the
-   Windows job and the Linux guard, so it will not start otherwise — and a green pair
+   Windows job and the Linux guard, so it will not start otherwise. A green pair
    means the full Pester suite and the validator passed on Windows, which is what you
    are actually shipping.
 2. **The lockfile is current.** Release notes are generated *from*
-   `darktide-modpack.lock.json` — the mod table, the version column, the Nexus links. A
+   `darktide-modpack.lock.json`: the mod table, the version column, the Nexus links. A
    stale lockfile produces a release that misdescribes the loadout. Regenerate with
    `New-ModpackLock.ps1 -ModsRoot <staging>` if the loadout has moved on.
 3. **You are releasing from the branch you think you are.** The job checks out whatever
@@ -45,8 +45,8 @@ than fussy: the value becomes a git tag, two filenames and a step output, and it
 be interpolated straight into a PowerShell script where a quote could run arbitrary code.
 Do not loosen it without understanding what it protects.
 
-**`prerelease`** — marks the GitHub release as a pre-release. Reasonable for the first
-one, given nothing here has been published before.
+**`prerelease`** marks the GitHub release as a pre-release, which is a reasonable
+setting for a first run.
 
 The tag is `v<version>`; the job creates it, so do not tag by hand first.
 
