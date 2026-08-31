@@ -30,7 +30,7 @@ This does the mechanical parts and keeps a backup of everything it touches.
 
 ```
    Nexus Mods                    staging                      game
-   (you download)                D:\Darktide\mods             ...\Warhammer 40,000 DARKTIDE\mods
+   (you download)                D:\\Darktide\\mods             ...\\Warhammer 40,000 DARKTIDE\\mods
         |                              |                              |
         |  darktide.ps1 update         |  darktide.ps1 deploy         |
         +----------------------------->+----------------------------->+
@@ -64,12 +64,12 @@ Get-ChildItem *.ps1 | Unblock-File
 ```
 
 If your workplace policy forbids changing the execution policy, run each command with an
-explicit bypass instead: `powershell -ExecutionPolicy Bypass -File .\darktide.ps1 status`.
+explicit bypass instead: `powershell -ExecutionPolicy Bypass -File .\\darktide.ps1 status`.
 
 ### 3. Let it find your game
 
 ```powershell
-.\darktide.ps1 init
+.\\darktide.ps1 init
 ```
 
 This works out where Darktide is installed instead of asking you. It reads Steam's install
@@ -80,10 +80,10 @@ looking for real game files before writing anything.
 
 ```
 Looking for Darktide...
-  found: D:\Games\Steam\steamapps\common\Warhammer 40,000 DARKTIDE   [Steam app manifest]
-Game folder: D:\Games\Steam\steamapps\common\Warhammer 40,000 DARKTIDE
-Staging   : D:\Darktide\mods
-Downloads : C:\Users\you\Downloads
+  found: D:\\Games\\Steam\\steamapps\\common\\Warhammer 40,000 DARKTIDE   [Steam app manifest]
+Game folder: D:\\Games\\Steam\\steamapps\\common\\Warhammer 40,000 DARKTIDE
+Staging   : D:\\Darktide\\mods
+Downloads : C:\\Users\\you\\Downloads
 Wrote config.json
 ```
 
@@ -91,7 +91,7 @@ It never overwrites an existing `config.json` without `-Force`. If the game isn'
 a non-Steam copy, say — point at it directly:
 
 ```powershell
-.\darktide.ps1 init -GamePath 'D:\Games\...\Warhammer 40,000 DARKTIDE'
+.\\darktide.ps1 init -GamePath 'D:\\Games\\...\\Warhammer 40,000 DARKTIDE'
 ```
 
 <details>
@@ -106,18 +106,18 @@ notepad config.json
 
 | Key | What to put in it |
 |---|---|
-| `ModsRoot` | Your **staging** mods folder, e.g. `D:\Darktide\mods`. Not the game's. |
-| `GamePath` | The game install root, e.g. `D:\Games\Steam\steamapps\common\Warhammer 40,000 DARKTIDE`. |
-| `DownloadDir` | Where your browser saves Nexus archives, e.g. `C:\Users\you\Downloads`. |
+| `ModsRoot` | Your **staging** mods folder, e.g. `D:\\Darktide\\mods`. Not the game's. |
+| `GamePath` | The game install root, e.g. `D:\\Games\\Steam\\steamapps\\common\\Warhammer 40,000 DARKTIDE`. |
+| `DownloadDir` | Where your browser saves Nexus archives, e.g. `C:\\Users\\you\\Downloads`. |
 | `LoaderSource` | Unzipped Darktide Mod Loader folder or its `.zip`. `init` fills this in if it finds one. |
-| `BackupRoot` | Staging backups. Leave blank for `<parent of ModsRoot>\mod_backups`. |
-| `DeployBackupRoot` | Game-folder backups. Leave blank for `<parent of ModsRoot>\deploy_backups`. |
-| `ApiKey` | Leave blank. Prefer the `NEXUS_API_KEY` environment variable — see [Version checking](#version-checking-optional). |
+| `BackupRoot` | Staging backups. Leave blank for `<parent of ModsRoot>\\mod_backups`. |
+| `DeployBackupRoot` | Game-folder backups. Leave blank for `<parent of ModsRoot>\\deploy_backups`. |
+| `ApiKey` | Leave blank. See [Checking versions locally](#checking-versions-locally-step-by-step). |
 
-`config.json` is gitignored and never leaves your machine. Use `\\` in JSON paths.
+`config.json` is gitignored and never leaves your machine. Use `\\\\` in JSON paths.
 
 > **Don't have a staging folder yet?** Copy your existing game mods folder to it once:
-> `Copy-Item '<GamePath>\mods' 'D:\Darktide\mods' -Recurse`. From then on you edit staging
+> `Copy-Item '<GamePath>\\mods' 'D:\\Darktide\\mods' -Recurse`. From then on you edit staging
 > and deploy from it, never the game folder directly.
 
 ### 4. Install the mod loader
@@ -126,8 +126,8 @@ Without it, DMF mods do not load at all. It is a separate download that puts fil
 game folder and patches the bundle database:
 
 ```powershell
-.\darktide.ps1 loader             # dry run - shows the version it would install
-.\darktide.ps1 loader -Apply
+.\\darktide.ps1 loader             # dry run - shows the version it would install
+.\\darktide.ps1 loader -Apply
 ```
 
 Get it from
@@ -135,21 +135,21 @@ Get it from
 into your `DownloadDir` — `loader` picks up either the `.zip` or an unzipped folder on its
 own. Point at one explicitly with `-Source '<path>'`.
 
-It records the installed version in `<game>\.darktide-loader.json`, so re-running when
+It records the installed version in `<game>\\.darktide-loader.json`, so re-running when
 nothing has changed does nothing at all. See [The mod loader](#the-mod-loader).
 
 ### 5. Check it found everything
 
 ```powershell
-.\darktide.ps1 status
+.\\darktide.ps1 status
 ```
 
 `status` writes nothing at all. Expect something like:
 
 ```
 == Configuration
-  staging mods : D:\Darktide\mods
-  game folder  : D:\Games\Steam\steamapps\common\Warhammer 40,000 DARKTIDE
+  staging mods : D:\\Darktide\\mods
+  game folder  : D:\\Games\\Steam\\steamapps\\common\\Warhammer 40,000 DARKTIDE
   api key      : not set (offline mode)
 
 == Staging
@@ -166,7 +166,7 @@ nothing has changed does nothing at all. See [The mod loader](#the-mod-loader).
 `version-tracked: 0` on a first run is normal — nothing has been installed *by this tool* yet,
 so no versions are recorded. The first `update -Apply` starts tracking each mod it installs.
 
-If you see `game folder not found` or `no mods\ folder`, fix `GamePath` before going further:
+If you see `game folder not found` or `no mods\\ folder`, fix `GamePath` before going further:
 the deploy step refuses to write to anything that doesn't look like a Darktide install, so a
 wrong path fails loudly rather than scattering files.
 
@@ -192,7 +192,7 @@ gives you a half-updated game.
 ### 3. Dry run first
 
 ```powershell
-.\darktide.ps1 sync
+.\\darktide.ps1 sync
 ```
 
 Nothing is written. You get the full plan: which archives were matched to which mod folders,
@@ -201,14 +201,14 @@ which are newer than what's installed, and what the deploy would copy. Read it b
 ### 4. Apply
 
 ```powershell
-.\darktide.ps1 sync -Apply
+.\\darktide.ps1 sync -Apply
 ```
 
 In order, this:
 
 1. installs every newer archive into **staging**, backing up each mod folder it replaces;
 2. adds any brand-new mod to `mod_load_order.txt`;
-3. backs up the live game `mods\` folder to a zip;
+3. backs up the live game `mods\\` folder to a zip;
 4. syncs staging into the game folder;
 5. re-checks that every load-order entry resolves to a real folder;
 6. refreshes `darktide-modpack.lock.json`.
@@ -221,9 +221,9 @@ nothing at all — see [Re-running is safe](#re-running-is-safe).
 If the game crashes on load, you have two undo paths and neither needs a re-download:
 
 ```powershell
-.\darktide.ps1 restore            # newest game-folder backup (undoes the deploy)
-.\darktide.ps1 rollback           # undoes the last staging install
-.\darktide.ps1 deploy -Apply      # ...then push the rolled-back staging out
+.\\darktide.ps1 restore            # newest game-folder backup (undoes the deploy)
+.\\darktide.ps1 rollback           # undoes the last staging install
+.\\darktide.ps1 deploy -Apply      # ...then push the rolled-back staging out
 ```
 
 ### Verbs
@@ -246,10 +246,10 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 ### Useful switches
 
 ```powershell
-.\darktide.ps1 update -Apply -Only markers_aio,scoreboard   # scope to specific mods
-.\darktide.ps1 deploy -Apply -Mirror                        # also delete mods no longer staged
-.\darktide.ps1 deploy -Apply -InstallLoader -RunToggle      # fresh install / after a game patch
-.\darktide.ps1 update -Apply -Force -Only NumericUI         # reinstall or downgrade one mod
+.\\darktide.ps1 update -Apply -Only markers_aio,scoreboard   # scope to specific mods
+.\\darktide.ps1 deploy -Apply -Mirror                        # also delete mods no longer staged
+.\\darktide.ps1 deploy -Apply -InstallLoader -RunToggle      # fresh install / after a game patch
+.\\darktide.ps1 update -Apply -Force -Only NumericUI         # reinstall or downgrade one mod
 ```
 
 ---
@@ -261,32 +261,32 @@ makes DMF mods load. It isn't a normal mod — it writes into the game folder it
 patches the bundle database — so it has its own verb rather than going through staging.
 
 ```powershell
-.\darktide.ps1 loader             # what is installed vs what you have downloaded
-.\darktide.ps1 loader -Apply      # install or update, then patch
-.\darktide.ps1 loader -Apply -Force   # reinstall the same version
+.\\darktide.ps1 loader             # what is installed vs what you have downloaded
+.\\darktide.ps1 loader -Apply      # install or update, then patch
+.\\darktide.ps1 loader -Apply -Force   # reinstall the same version
 ```
 
 What it puts where:
 
 | From the loader download | Goes to |
 |---|---|
-| `binaries\mod_loader` | game folder |
-| `bundle\<hash>.patch_999` | game folder — the mod entry bundle |
-| `tools\dtkit-patch.exe` | game folder |
+| `binaries\\mod_loader` | game folder |
+| `bundle\\<hash>.patch_999` | game folder — the mod entry bundle |
+| `tools\\dtkit-patch.exe` | game folder |
 | `toggle_darktide_mods.bat` | game folder |
-| `mods\base\` | **staging**, so a normal `deploy` carries it |
+| `mods\\base\\` | **staging**, so a normal `deploy` carries it |
 
 Your `mod_load_order.txt` is never overwritten — the loader ships its own, and replacing
 yours would wipe your mod list.
 
 **Updating follows the loader's own instructions:** unpatch the bundle database, copy the new
-files, re-patch. The previous loader is zipped to `loader_backups\` first.
+files, re-patch. The previous loader is zipped to `loader_backups\\` first.
 
 > **Never run `toggle_darktide_mods.bat` twice.** It *toggles*: once patches, twice unpatches
 > and every mod silently stops loading. This tooling always calls `dtkit-patch` with an
 > explicit `--patch` / `--unpatch`, so re-running `loader -Apply` can't flip you off.
 
-The installed version is recorded in `<game>\.darktide-loader.json` and shown by `status`.
+The installed version is recorded in `<game>\\.darktide-loader.json` and shown by `status`.
 Re-running with the same version does nothing and doesn't touch the bundle at all.
 
 ---
@@ -299,8 +299,8 @@ folder is found for you.
 **On the machine that has the loadout:**
 
 ```powershell
-.\darktide.ps1 sync -Apply           # make sure staging holds the newest versions
-.\darktide.ps1 export -Apply         # -> D:\Darktide\darktide-loadout-<date>.zip
+.\\darktide.ps1 sync -Apply           # make sure staging holds the newest versions
+.\\darktide.ps1 export -Apply         # -> D:\\Darktide\\darktide-loadout-<date>.zip
 ```
 
 Copy that one zip to the new machine (USB, network share, your own cloud storage).
@@ -312,8 +312,8 @@ git clone https://github.com/greenblacked/darktide-mods.git
 cd darktide-mods
 Get-ChildItem *.ps1 | Unblock-File
 
-.\darktide.ps1 init                                      # finds the game by itself
-.\darktide.ps1 import -Path 'E:\darktide-loadout-20260829.zip' -Apply
+.\\darktide.ps1 init                                      # finds the game by itself
+.\\darktide.ps1 import -Path 'E:\\darktide-loadout-20260829.zip' -Apply
 ```
 
 `import` unpacks into staging and deploys to the game folder in the same run — you never
@@ -321,7 +321,7 @@ move a folder yourself. It extracts to a temporary directory first and refuses a
 entry that tries to escape the destination, so a tampered zip can't write outside your mods
 folder. Add `-Mirror` to also remove mods on the target that aren't in the archive.
 
-Check it with `.\darktide.ps1 status`, then launch the game.
+Check it with `.\\darktide.ps1 status`, then launch the game.
 
 > **Why an archive, and not "download all the mods automatically"?**
 > A Nexus **free** account cannot get download links from the API — `download_link.json`
@@ -331,7 +331,7 @@ Check it with `.\darktide.ps1 status`, then launch the game.
 > get a one-command restore, and it's the only part that has to travel with you.
 >
 > With Nexus Premium you'd still download in the browser here; what an API key buys you is
-> `check` telling you *which* mods are outdated. See [Version checking](#version-checking-optional).
+> `check` telling you *which* mods are outdated. See [Checking versions locally](#checking-versions-locally-step-by-step).
 
 ---
 
@@ -345,55 +345,131 @@ Every verb is idempotent: running it twice does the same thing as running it onc
 - `update` records the installed version in each mod's `.nexus-mod.json`, so an archive you
   have already installed comes back as `SAME` and is skipped. `-Force` reinstalls.
 - `mod_load_order.txt` is only ever appended to, and never with a name already in it.
-- `loader` compares the version you have against `<game>\.darktide-loader.json` and stops if
+- `loader` compares the version you have against `<game>\\.darktide-loader.json` and stops if
   they match — it doesn't even touch the bundle database, so it can't toggle your mods off.
 - Deploy backups are pruned to the newest `-KeepBackups` archives (default 10), so repeated
   deploys cannot fill the disk.
 
 ---
 
-## Version checking (optional)
+## Checking versions locally, step by step
 
-The tooling works fully without a Nexus API key. What the key adds is one thing: telling you
-that a newer version exists before you go looking.
+Without an API key the tool does not talk to Nexus. It compares zips already sitting in
+`DownloadDir` against the versions recorded in staging. That is enough to decide what to
+install. `check` is the command that queries Nexus, and it is unused here.
 
-| | No key | Free account + key | Premium + key |
-|---|---|---|---|
-| Read installed versions | yes | yes | yes |
-| Know an update exists | **you check** | automatic | automatic |
-| Download the archive | **you click** | **you click** | automatic |
-| Install, backup, load order, deploy | yes | yes | yes |
+### 1. Keep the default Nexus filenames
 
-Free Nexus accounts cannot get download links from the API — `/download_link.json` returns
-403 — so the download click is always manual unless you're premium. That's a Nexus policy;
-working around it would mean scraping, which their terms prohibit.
+A stock download looks like
+`Markers Improved All-in-one-447-2-14-4-1719209900.zip`. The `447` is the Nexus id and
+`2-14-4` is version `2.14.4`. That is how `update` identifies an archive with no key.
 
-To enable checking:
+If you renamed the file, the version inside the zip's `info.json` is used instead. If
+neither is present the archive is reported as `VERSION-UNKNOWN` and skipped — it is not
+guessed at.
+
+### 2. Close the game
+
+`update` and `deploy` refuse to run while `Darktide.exe` is open.
+
+### 3. Dry-run first
 
 ```powershell
-# https://www.nexusmods.com/users/myaccount?tab=api  ->  generate a personal key
+.\\darktide.ps1 update
+```
+
+Nothing is written. Each archive is matched to a folder and compared to the version in
+that folder's `.nexus-mod.json` (created the first time this tool installed the mod).
+
+```powershell
+.\\darktide.ps1 update -Verbose
+.\\darktide.ps1 sync
+```
+
+`sync` is the same comparison plus what deploy would copy. Read the plan before `-Apply`.
+
+### 4. Read the statuses
+
+| Status | Meaning |
+|---|---|
+| `NEWER` | The zip is newer than staging. This is the one you apply. |
+| `SAME` | Already installed. Skipped. |
+| `OLDER` | The zip is older than staging. Skipped, so a leftover download cannot downgrade you. |
+| `NO-ARCHIVE` | That folder has no matching zip in `DownloadDir`. Not an error. |
+| `VERSION-UNKNOWN` | Renamed zip and no `info.json`. Skipped. |
+
+A first run often shows `version-tracked: 0` in `status`. Nothing has been installed *by
+this tool* yet, so there is no recorded version to compare. The first `update -Apply`
+starts tracking.
+
+### 5. Apply only what is newer
+
+```powershell
+.\\darktide.ps1 update -Apply
+.\\darktide.ps1 sync -Apply
+```
+
+`update -Apply` installs into staging. `sync -Apply` does that and then deploys.
+
+One folder only:
+
+```powershell
+.\\darktide.ps1 update -Apply -Only dmf
+.\\darktide.ps1 update -Apply -Force -Only NumericUI
+```
+
+`-Force` is the deliberate reinstall or downgrade. Without it, older zips stay skipped.
+
+### 6. When you want to look on Nexus yourself
+
+Local check cannot see a version you never downloaded. Use the lockfile as a list of
+pages, not as live Nexus data:
+
+```powershell
+.\\darktide.ps1 status
+Get-Content .\\darktide-modpack.lock.json
+```
+
+Each entry has the version this tool last installed and a `url` to the author's page.
+Open the page, download if Nexus shows newer, leave the filename alone, run `update`
+again.
+
+After a game patch the same local path applies: get the new loader and DMF zips first,
+then:
+
+```powershell
+.\\darktide.ps1 loader -Apply -Force
+.\\darktide.ps1 update -Apply -Only dmf
+.\\darktide.ps1 sync -Apply
+```
+
+### Optional: ask Nexus from the command line
+
+A key only adds `check` — “Nexus has a file you do not have yet.” A free account still
+cannot fetch the file through the API (`/download_link.json` returns 403). You click
+either way.
+
+Leave `ApiKey` blank in `config.json`. If you do generate a key, put it in the
+environment, not in the file:
+
+```powershell
+# https://www.nexusmods.com/users/myaccount?tab=api
 [Environment]::SetEnvironmentVariable('NEXUS_API_KEY', '<your-key>', 'User')
-# open a new PowerShell window, then:
-.\darktide.ps1 check
+# new PowerShell window, then:
+.\\darktide.ps1 check
 ```
 
-Without a key, `update` runs in offline mode automatically. It reads the version out of each
-archive — from the `info.json` inside the zip, or from the stock Nexus filename
-(`Markers Improved All-in-one-447-2-14-4-1719209900.zip` → mod 447, version 2.14.4) — and
-installs only what's genuinely newer.
-
-### Mapping mods to Nexus IDs
-
-`mods-map.json` maps folder names to Nexus mod IDs. Mods that ship an `info.json` are mapped
-automatically; the rest need an ID before they can be version-checked.
+`mods-map.json` maps folder names to Nexus ids. Mods that ship `info.json` are mapped
+on install; the rest need the number from the mod URL pasted in. Set `"pinned": true`
+on anything `update` should leave alone.
 
 ```powershell
-.\Update-DarktideMods.ps1 -BuildCatalog   # crawls the Nexus mod list; resumable
-.\Update-DarktideMods.ps1 -Resolve        # matches by name, writes mods-map.json
+.\\Update-DarktideMods.ps1 -BuildCatalog   # needs a key; crawls the Nexus list
+.\\Update-DarktideMods.ps1 -Resolve
 ```
 
-Or just paste the number from the mod's URL into `mods-map.json`. Set `"pinned": true` on
-anything you want left alone.
+`-BuildCatalog` and `-Resolve` are unused on a no-key setup. Paste ids by hand if a
+folder is unmapped.
 
 ---
 
@@ -403,23 +479,23 @@ The order matters:
 
 ```powershell
 # 1. Re-apply the mod loader's bundle patch (Steam replaced it)
-.\darktide.ps1 loader -Apply -Force
+.\\darktide.ps1 loader -Apply -Force
 
 # 2. Update the framework first - most mods depend on it
-.\darktide.ps1 update -Apply -Only dmf
+.\\darktide.ps1 update -Apply -Only dmf
 
 # 3. Then the rest
-.\darktide.ps1 sync -Apply
+.\\darktide.ps1 sync -Apply
 
 # 4. If the game crashes on load, bisect: comment out half of
 #    mod_load_order.txt with '--' and restart.
 
 # 5. If one mod is the culprit and has no update yet:
-.\darktide.ps1 rollback -BackupSet '<set>'
+.\\darktide.ps1 rollback -BackupSet '<set>'
 #    then set "pinned": true on it in mods-map.json
 ```
 
-Your mod **settings survive all of this** — DMF stores them in `%APPDATA%\Fatshark\Darktide\`,
+Your mod **settings survive all of this** — DMF stores them in `%APPDATA%\\Fatshark\\Darktide\\`,
 not in the mod folders.
 
 ---
@@ -429,12 +505,12 @@ not in the mod folders.
 This tooling deletes and replaces directories, so it is deliberately paranoid:
 
 - **Refuses to run while `Darktide.exe` is open.**
-- **Validates the game path** against `binaries\Darktide.exe`, `bundle\bundle_database.data`
+- **Validates the game path** against `binaries\\Darktide.exe`, `bundle\\bundle_database.data`
   and friends before writing. Also refuses drive roots and suspiciously shallow paths.
-- **Staged installs.** A mod is extracted to `.staging-<name>\` and only swapped in once the
+- **Staged installs.** A mod is extracted to `.staging-<name>\\` and only swapped in once the
   new copy is on disk. A corrupt archive can never leave you with a deleted mod.
-- **Backs up before every write** — staging installs to `mod_backups\<timestamp>\`, deploys to
-  `deploy_backups\gamemods-<timestamp>.zip`.
+- **Backs up before every write** — staging installs to `mod_backups\\<timestamp>\\`, deploys to
+  `deploy_backups\\gamemods-<timestamp>.zip`.
 - **Archive contents decide the target folder**, taken from the `*.mod` file inside. If that
   doesn't match the mod being updated, the install is refused rather than guessed at.
 - **Zip-slip guarded** — `../`, absolute paths, and backslash traversal are rejected, and every
@@ -478,9 +554,9 @@ in the artifact.
 Install-Module Pester -MinimumVersion 5.5.0 -Scope CurrentUser -Force -SkipPublisherCheck
 Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
 
-.\Invoke-Tests.ps1                      # whole suite, then the repo validator
-.\Invoke-Tests.ps1 -Path Deploy         # one file
-.\Invoke-Tests.ps1 -Output Detailed     # per-test output
+.\\Invoke-Tests.ps1                      # whole suite, then the repo validator
+.\\Invoke-Tests.ps1 -Path Deploy         # one file
+.\\Invoke-Tests.ps1 -Output Detailed     # per-test output
 ```
 
 Every test builds its own staging folder, fake game install and mod archives under
@@ -488,7 +564,7 @@ Every test builds its own staging folder, fake game install and mod archives und
 so the suite is safe to run at any time.
 
 The suite needs **Windows**: the tools shell out to `robocopy`, read `$env:USERPROFILE`
-and the Steam registry keys, and build `\`-separated paths, and the tests assert exactly
+and the Steam registry keys, and build `\\`-separated paths, and the tests assert exactly
 that. On Linux or macOS `Invoke-Tests.ps1` says so and runs the cross-platform repository
 validator instead; `-AllowNonWindows` forces the Pester run if you want to see it fail.
 
@@ -510,7 +586,7 @@ What it covers:
 |---|---|
 | `tests/Deploy.Tests.ps1` | Dry run writes nothing; first deploy copies; **second deploy is a byte-identical no-op**; `-Force`; `-Mirror`; backup retention; refusal to write to a non-Darktide folder, a drive root or an empty staging set; load-order post-checks. |
 | `tests/OfflineUpdate.Tests.ps1` | Upgrade installs and is recorded; **re-running installs nothing**; new mods land with a load-order entry that is not duplicated; downgrades refused without `-Force`; traversal and malformed archives rejected without destroying the installed mod. |
-| `tests/Update.Tests.ps1` | Nexus filename parsing, version comparison, mod-name resolution from the `.mod` file, unsafe-name refusal, and zip-slip guards (`../`, `..\`, absolute paths). |
+| `tests/Update.Tests.ps1` | Nexus filename parsing, version comparison, mod-name resolution from the `.mod` file, unsafe-name refusal, and zip-slip guards (`../`, `..\\`, absolute paths). |
 | `tests/Lock.Tests.ps1` | Lockfile shape, ID mapping, no mod content, stable regeneration, content hashes that move only when a mod changes. |
 | `tests/Setup.Tests.ps1` | Game detection: real game files vs a folder that only has the right name, multi-drive Steam libraries parsed from `libraryfolders.vdf`, and a generated config the other tools can consume. |
 | `tests/Loader.Tests.ps1` | Loader version parsing, payload validation, install/update, base into staging, your load order preserved, backups, and — against a stub patcher — that it uses `--patch`/`--unpatch` in the right order and never the toggle. |
@@ -547,7 +623,7 @@ Run the validator locally the same way CI does:
 
 ```powershell
 Install-Module PSScriptAnalyzer -Scope CurrentUser
-.\Test-Modpack.ps1
+.\\Test-Modpack.ps1
 ```
 
 ---
@@ -578,35 +654,35 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser
 
 | Symptom | Cause and fix |
 |---|---|
-| `cannot be loaded because running scripts is disabled` | Execution policy. `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, then `Get-ChildItem *.ps1 \| Unblock-File`. |
-| `does not look like a Darktide install` | `GamePath` is wrong. It must be the folder containing `binaries\Darktide.exe` or `bundle\bundle_database.data` — not the Steam library root, not the `mods\` folder inside it. |
-| `is not a mods folder (no mod_load_order.txt, no base\)` | `ModsRoot` points somewhere that isn't a DMF mods folder. See step 3's note on creating staging. |
+| `cannot be loaded because running scripts is disabled` | Execution policy. `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, then `Get-ChildItem *.ps1 \\| Unblock-File`. |
+| `does not look like a Darktide install` | `GamePath` is wrong. It must be the folder containing `binaries\\Darktide.exe` or `bundle\\bundle_database.data` — not the Steam library root, not the `mods\\` folder inside it. |
+| `is not a mods folder (no mod_load_order.txt, no base\\)` | `ModsRoot` points somewhere that isn't a DMF mods folder. See step 3's note on creating staging. |
 | `Darktide.exe is running` | Close the game. Check for a hung process: `Get-Process Darktide`. |
 | `Nothing to do. Download mod archives...` | No `.zip` files in `DownloadDir`. Check the path in `config.json` and that your browser didn't save `.zip.crdownload`. |
-| Archive shows as `VERSION-UNKNOWN` | The filename was changed and the zip has no `info.json`. Install it deliberately: `.\darktide.ps1 update -Apply -Force -Only <folder>`. |
+| Archive shows as `VERSION-UNKNOWN` | The filename was changed and the zip has no `info.json`. Install it deliberately: `.\\darktide.ps1 update -Apply -Force -Only <folder>`. |
 | Archive shows as `NO-ARCHIVE` | That mod has no matching zip in `DownloadDir` — nothing is wrong, there's just nothing to install for it. |
 | `Skipping '<file>': no *.mod file inside` | Not a DMF mod archive (a texture pack, a readme bundle, or a nested zip). Ignored on purpose. |
 | Deploy says `Already in sync` when you expected work | Staging really does match the game folder. If you edited the game folder directly, that edit is what `-Mirror` or `-Force` is for. |
-| Game crashes on load after an update | `.\darktide.ps1 restore`, then bisect: comment out half of `mod_load_order.txt` with `--` and restart. See [After a Darktide patch](#after-a-darktide-patch). |
-| Mods silently stop loading after a game update | Steam replaced the patched bundle. `.\darktide.ps1 deploy -Apply -InstallLoader -RunToggle`. |
+| Game crashes on load after an update | `.\\darktide.ps1 restore`, then bisect: comment out half of `mod_load_order.txt` with `--` and restart. See [After a Darktide patch](#after-a-darktide-patch). |
+| Mods silently stop loading after a game update | Steam replaced the patched bundle. `.\\darktide.ps1 deploy -Apply -InstallLoader -RunToggle`. |
 | `HTTP 403 ... premium users only` | Expected on a free Nexus account. Version *checking* works on free; downloading through the API does not. Download in the browser. |
 | `HTTP 429` / rate limited | Nexus allows 100 requests/hour, 2500/day. Wait it out, or use `-NoApi`. |
 
 ### Getting more detail
 
 ```powershell
-.\darktide.ps1 update -Verbose          # per-decision logging
-Get-Content .\logs\update-*.log | Select-Object -Last 50
-Import-Csv (Get-ChildItem .\report-*.csv | Select-Object -Last 1) | Format-Table
+.\\darktide.ps1 update -Verbose          # per-decision logging
+Get-Content .\\logs\\update-*.log | Select-Object -Last 50
+Import-Csv (Get-ChildItem .\\report-*.csv | Select-Object -Last 1) | Format-Table
 ```
 
-Every run writes a timestamped log to `logs\` and a CSV report next to the scripts. Both are
+Every run writes a timestamped log to `logs\\` and a CSV report next to the scripts. Both are
 gitignored; logs older than 30 days are pruned automatically.
 
 ### Verifying the tooling itself
 
 ```powershell
-.\Invoke-Tests.ps1
+.\\Invoke-Tests.ps1
 ```
 
 Runs 153 sandboxed tests plus the repository validator. It touches nothing real — see
