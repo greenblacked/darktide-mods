@@ -50,6 +50,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          # Read-only job: do not hand the GITHUB_TOKEN to later steps as a git credential.
+          persist-credentials: false
 
       - name: Install PSScriptAnalyzer and Pester
         shell: pwsh
@@ -102,6 +104,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       # The validator must stay genuinely cross-platform. A Windows-only path
       # pattern here is invisible on the Windows job but breaks this one.
