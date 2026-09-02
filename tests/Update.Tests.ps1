@@ -113,6 +113,18 @@ Describe 'Get-ArchiveModLayout' {
         $layout.Prefix  | Should -Be 'SomeFolder/true_level/'
     }
 
+    It 'normalises backslash entry paths the same way Expand-ModArchive does' {
+        # CreateFromDirectory and some Windows zippers write '\'. Without
+        # normalisation the prefix becomes empty and the extract root is wrong.
+        $zip = New-TestZip -Path (Join-Path $script:Sandbox 'backslash.zip') -Entries @{
+            'pack\scoreboard\scoreboard.mod' = 'return {}'
+            'pack\scoreboard\info.json'      = '{"version":"1.0.0"}'
+        }
+        $layout = Get-ArchiveModLayout -ZipPath $zip
+        $layout.ModName | Should -Be 'scoreboard'
+        $layout.Prefix  | Should -Be 'pack/scoreboard/'
+    }
+
     It 'ignores a base/ .mod file when picking the mod root' {
         $zip = New-TestZip -Path (Join-Path $script:Sandbox 'withbase.zip') -Entries @{
             'base/base.mod'             = 'return {}'
@@ -165,6 +177,17 @@ Describe 'Expand-ModArchive' {
         Test-Path (Join-Path $script:Dest 'mymod.mod')     | Should -BeTrue
         Test-Path (Join-Path $script:Dest 'scripts\a.lua') | Should -BeTrue
         Test-Path (Join-Path $script:Dest 'README.txt')    | Should -BeFalse
+    }
+
+    It 'extracts when the zip entries use backslashes and the prefix uses slashes' {
+        $zip = New-TestZip -Path (Join-Path $script:Sandbox 'sub-bs.zip') -Entries @{
+            'pack\mymod\mymod.mod'     = 'return {}'
+            'pack\mymod\scripts\a.lua' = '-- a'
+        }
+        Expand-ModArchive -ZipPath $zip -Destination $script:Dest -Prefix 'pack/mymod/'
+
+        Test-Path (Join-Path $script:Dest 'mymod.mod')     | Should -BeTrue
+        Test-Path (Join-Path $script:Dest 'scripts\a.lua') | Should -BeTrue
     }
 
     It 'rejects a forward-slash traversal entry' {

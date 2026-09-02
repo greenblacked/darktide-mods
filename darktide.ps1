@@ -9,9 +9,9 @@
         .\darktide.ps1 check      what is outdated on Nexus (needs an API key)
         .\darktide.ps1 update     install downloaded archives into staging
         .\darktide.ps1 deploy     push staging into the game folder
-        .\darktide.ps1 sync       update + deploy, the everyday one
-        .\darktide.ps1 rollback   undo the last staging install
-        .\darktide.ps1 restore    undo the last deploy to the game folder
+        .\darktide.ps1 sync       update + deploy; stops if either step fails
+        .\darktide.ps1 rollback   undo the last staging install (needs -Apply)
+        .\darktide.ps1 restore    undo the last deploy to the game folder (needs -Apply)
         .\darktide.ps1 lock       regenerate darktide-modpack.lock.json
         .\darktide.ps1 init       find the game automatically and write config.json
         .\darktide.ps1 loader     install or update the Darktide Mod Loader
@@ -19,7 +19,7 @@
         .\darktide.ps1 import     restore a loadout zip and deploy it
 
     Everything is a dry run until you add -Apply, except 'status' and 'check'
-    which never write anything.
+    which never write anything. That includes rollback and restore.
 
 .PARAMETER Verb
     Which action to run. See above.
@@ -38,6 +38,14 @@
 .EXAMPLE
     .\darktide.ps1 deploy -Apply -Mirror
     Deploy and remove mods from the game folder that are no longer in staging.
+
+.EXAMPLE
+    .\darktide.ps1 rollback
+    Lists the backup set that would be restored. Add -Apply to write.
+
+.EXAMPLE
+    .\darktide.ps1 restore -Apply
+    Restores the newest deploy backup into the game mods folder.
 #>
 
 [CmdletBinding()]
@@ -230,6 +238,8 @@ switch ($Verb) {
 
         & $Deployer -ConfigPath $ConfigPath -Apply:$Apply -Mirror:$Mirror `
                     -InstallLoader:$InstallLoader -RunToggle:$RunToggle -Force:$Force
+        $code = if (Test-Path Variable:LASTEXITCODE) { $LASTEXITCODE } else { 0 }
+        if ($code -and $code -ne 0) { throw 'Deploy step finished with problems - lockfile not refreshed.' }
 
         if ($Apply) {
             Write-Head 'Refreshing lockfile'
@@ -239,17 +249,43 @@ switch ($Verb) {
     }
 
     'rollback' {
-        Write-Head 'Rolling back the staging folder'
-        & $Updater -ConfigPath $ConfigPath -Rollback -BackupSet $BackupSet
-        Write-Warn 'Staging restored. Run: .\darktide.ps1 deploy -Apply   to push it to the game.'
+        Write-Head "Rolling back the staging folder$(if (-not $Apply) { ' (dry run)' })"
+        & $Updater -ConfigPath $ConfigPath -Rollback -BackupSet $BackupSet -Apply:$Apply
+        if ($Apply) {
+            Write-Warn 'Staging restored. Run: .\darktide.ps1 deploy -Apply   to push it to the game.'
+        }
         return
     }
 
     'restore' {
-        Write-Head 'Restoring the game mods folder from a deploy backup'
+        Write-Head "Restoring the game mods folder from a deploy backup$(if (-not $Apply) { ' (dry run)' })"
         if (-not $deployBk -or -not (Test-Path -LiteralPath $deployBk)) {
             throw "No deploy backups at '$deployBk'."
         }
+        if (-not $gamePath) { throw 'GamePath is not set in config.json.' }
+
+        # Same shape of checks Deploy-DarktideMods.ps1 uses before writing. Restore
+        # used to skip them and extract with no zip-slip guard.
+        if (-not (Test-Path -LiteralPath $gamePath -PathType Container)) {
+            throw "Game folder '$gamePath' does not exist. Check GamePath in config.json."
+        }
+        $gameFull = (Resolve-Path -LiteralPath $gamePath).Path.TrimEnd('\')
+        if ($gameFull -match '^[A-Za-z]:$' -or $gameFull -match '^[A-Za-z]:\\?$') {
+            throw "GamePath '$gameFull' is a drive root. Refusing."
+        }
+        if (($gameFull -split '\\').Count -lt 3) {
+            throw "GamePath '$gameFull' is suspiciously shallow. Point it at the Darktide install folder."
+        }
+        $markers = @(
+            (Join-Path $gameFull 'binaries\Darktide.exe'),
+            (Join-Path $gameFull 'binaries_dx12\Darktide.exe'),
+            (Join-Path $gameFull 'bundle\bundle_database.data'),
+            (Join-Path $gameFull 'launcher\Launcher.exe')
+        )
+        if (-not (@($markers | Where-Object { Test-Path -LiteralPath $_ }))) {
+            throw "'$gameFull' does not look like a Darktide install. Refusing to restore into it."
+        }
+
         # Newest first by write time, not by name: a same-second collision gets a
         # '-1' suffix that would sort before the un-suffixed name.
         $zips = @(Get-ChildItem -LiteralPath $deployBk -File |
@@ -262,7 +298,7 @@ switch ($Verb) {
             $hit[0]
         } else { $zips[0] }
 
-        $gm = Join-Path $gamePath 'mods'
+        $gm = Join-Path $gameFull 'mods'
         Write-Host "  backup : $($zip.Name)"
         Write-Host "  target : $gm"
 
@@ -280,7 +316,42 @@ switch ($Verb) {
         Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
         $stage = "$gm.restoring"
         if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
-        [System.IO.Compression.ZipFile]::ExtractToDirectory($zip.FullName, $stage)
+        New-Item -ItemType Directory -Path $stage -Force | Out-Null
+
+        # Guarded extract - same rules as Import-DarktideLoadout.ps1.
+        $root = [System.IO.Path]::GetFullPath($stage).TrimEnd('\') + '\'
+        $archive = [System.IO.Compression.ZipFile]::OpenRead($zip.FullName)
+        try {
+            foreach ($entry in $archive.Entries) {
+                $rel = $entry.FullName -replace '\\', '/'
+                if (-not $rel) { continue }
+                if ($rel -match '(^|/)\.\.(/|$)' -or $rel -match '^([A-Za-z]:|/)') {
+                    throw "Backup contains an unsafe path: '$($entry.FullName)'"
+                }
+                $target = Join-Path $stage ($rel -replace '/', '\')
+                $full = [System.IO.Path]::GetFullPath($target)
+                if (-not $full.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) {
+                    throw "Backup entry '$($entry.FullName)' resolves outside the restore folder."
+                }
+                if ($rel.EndsWith('/')) {
+                    if (-not (Test-Path -LiteralPath $target)) {
+                        New-Item -ItemType Directory -Path $target -Force | Out-Null
+                    }
+                    continue
+                }
+                $parent = Split-Path -Parent $target
+                if ($parent -and -not (Test-Path -LiteralPath $parent)) {
+                    New-Item -ItemType Directory -Path $parent -Force | Out-Null
+                }
+                [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $target, $true)
+            }
+        } catch {
+            Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
+            throw
+        } finally {
+            $archive.Dispose()
+        }
+
         if (Test-Path -LiteralPath $gm) { Remove-Item -LiteralPath $gm -Recurse -Force }
         Move-Item -LiteralPath $stage -Destination $gm -Force
         Write-Ok "  restored from $($zip.Name)"
