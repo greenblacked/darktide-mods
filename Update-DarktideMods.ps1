@@ -8,12 +8,13 @@
     is passed. Every install is preceded by a zip backup of the existing mod folder, and
     -Rollback restores from those backups.
 
-    Designed for a NON-PREMIUM Nexus account. The Nexus API refuses to hand direct
-    download links to free accounts (HTTP 403 on /download_link.json), so this script:
+    Designed for a free (non-premium) Nexus account. The Nexus API refuses to hand
+    direct download links to free accounts (HTTP 403 on /download_link.json), so this
+    script:
       1. uses the API for version metadata only (allowed for free accounts), then
       2. installs from archives you downloaded yourself into -DownloadDir.
-    If the account IS premium the script detects that via /users/validate.json and
-    downloads automatically without touching -DownloadDir.
+    Premium status is detected and logged via /users/validate.json, but installs still
+    come from -DownloadDir either way - there is no automatic Nexus download path.
 
 .PARAMETER Apply
     Actually install updates. Without it the script only reports.
@@ -30,7 +31,12 @@
     is installed, or when its version cannot be determined. Use for repairs and downgrades.
 
 .PARAMETER Rollback
-    Restore mod folders from a backup set instead of updating.
+    Restore mod folders from a backup set instead of updating. Like every other
+    write, this needs -Apply; without it the script only lists the chosen set.
+
+.PARAMETER KeepBackups
+    How many staging backup sets to keep under BackupRoot. Older sets are pruned
+    after a successful install. Default 10; 0 keeps everything.
 
 .PARAMETER Resolve
     Try to map local folder names to Nexus mod IDs and write them to mods-map.json.
@@ -92,7 +98,10 @@ param(
     [switch]   $BuildCatalog,
     [switch]   $OpenPages,
     [switch]   $NoLoadOrderUpdate,
-    [int]      $CatalogMaxRequests = 400
+    [int]      $CatalogMaxRequests = 400,
+
+    [ValidateRange(0, 1000)]
+    [int]      $KeepBackups = 10
 )
 
 Set-StrictMode -Version Latest
@@ -400,6 +409,8 @@ function Get-LocalMods {
     $result = New-Object System.Collections.Generic.List[object]
 
     foreach ($dir in Get-ChildItem -LiteralPath $ModsRoot -Directory | Sort-Object Name) {
+        # Crash leftovers (.staging-*) and other tooling dirs are not mods.
+        if ($dir.Name.StartsWith('.')) { continue }
         if ($script:IgnoreFolders -contains $dir.Name) { continue }
 
         $version   = $null
@@ -630,14 +641,22 @@ function Get-ArchiveModLayout {
     $zip = $null
     try {
         $zip = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+        # Same separator normalisation as Expand-ModArchive: Windows tools often
+        # write '\', and a backslash-only path would miss the '/' filters below.
         $modEntry = $zip.Entries |
-            Where-Object { $_.FullName -match '\.mod$' -and $_.FullName -notmatch '(^|/)base/' } |
-            Sort-Object { ($_.FullName -split '/').Count } |
+            Where-Object {
+                $n = $_.FullName -replace '\\', '/'
+                $n -match '\.mod$' -and $n -notmatch '(^|/)base/'
+            } |
+            Sort-Object { (($_.FullName -replace '\\', '/') -split '/').Count } |
             Select-Object -First 1
         if (-not $modEntry) { return $null }
 
-        $parts    = $modEntry.FullName -split '/'
-        $modName  = [System.IO.Path]::GetFileNameWithoutExtension($modEntry.Name)
+        $parts    = ($modEntry.FullName -replace '\\', '/') -split '/'
+        # Derive the name from the normalised leaf, not ZipArchiveEntry.Name - on
+        # non-Windows hosts '\' is not a path separator, so Name can be the whole
+        # path and would trip the unsafe-name check below.
+        $modName  = [System.IO.Path]::GetFileNameWithoutExtension($parts[-1])
         $prefix   = if ($parts.Count -gt 1) { ($parts[0..($parts.Count - 2)] -join '/') + '/' } else { '' }
 
         # Hard guard: this name becomes a folder that gets deleted and recreated.
@@ -671,7 +690,7 @@ function Get-ArchiveModVersion {
         $zip = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
         $e = $zip.Entries |
              Where-Object { $_.Name -eq 'info.json' } |
-             Sort-Object { ($_.FullName -split '/').Count } |
+             Sort-Object { (($_.FullName -replace '\\', '/') -split '/').Count } |
              Select-Object -First 1
         if (-not $e) { return $null }
         $sr = New-Object System.IO.StreamReader($e.Open())
@@ -737,14 +756,14 @@ function Expand-ModArchive {
     try {
         $zip  = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
         $root = [System.IO.Path]::GetFullPath($Destination).TrimEnd('\') + '\'
+        $prefixNorm = if ($Prefix) { $Prefix -replace '\\', '/' } else { '' }
         foreach ($e in $zip.Entries) {
-            if ($Prefix -and -not $e.FullName.StartsWith($Prefix, [StringComparison]::OrdinalIgnoreCase)) { continue }
-            $rel = if ($Prefix) { $e.FullName.Substring($Prefix.Length) } else { $e.FullName }
+            $fullNorm = $e.FullName -replace '\\', '/'
+            if ($prefixNorm -and -not $fullNorm.StartsWith($prefixNorm, [StringComparison]::OrdinalIgnoreCase)) { continue }
+            $rel = if ($prefixNorm) { $fullNorm.Substring($prefixNorm.Length) } else { $fullNorm }
             if (-not $rel) { continue }
 
-            # Zip-slip guard. Normalise separators FIRST - zip entries may legally use '\',
-            # and a '\'-only traversal would otherwise slip past a '/'-only regex.
-            $rel = $rel -replace '\\', '/'
+            # Zip-slip guard. Separators already normalised above.
             if ($rel -match '(^|/)\.\.(/|$)' -or $rel -match '^([A-Za-z]:|/)') {
                 throw "Archive contains an unsafe path: '$($e.FullName)'"
             }
@@ -1060,6 +1079,9 @@ function Invoke-OfflineUpdate {
                     $script:Stats.Updated++
                     $script:OfflineInstalled.Add($folder)
                     $action = "installed from $($c.File.Name)"
+                } else {
+                    $script:Stats.Failed++
+                    $action = 'install refused'
                 }
             } catch {
                 $script:Stats.Failed++
@@ -1138,9 +1160,17 @@ function Invoke-Rollback {
         $target = Join-Path $ModsRoot $name
         if ($PSCmdlet.ShouldProcess($target, "Restore from $($z.Name)")) {
             # Stage first, exactly as on install, so a failed extract cannot destroy the mod.
+            # Use the zip-slip guard rather than ExtractToDirectory - backups are ours, but
+            # a tampered zip in BackupRoot should not write outside the mod folder.
             $stage = Join-Path $ModsRoot ".staging-$name"
             if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
-            [System.IO.Compression.ZipFile]::ExtractToDirectory($z.FullName, $stage)
+            New-Item -ItemType Directory -Path $stage -Force | Out-Null
+            try {
+                Expand-ModArchive -ZipPath $z.FullName -Destination $stage -Prefix ''
+            } catch {
+                Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
+                throw
+            }
             if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
             Move-Item -LiteralPath $stage -Destination $target -Force
             Write-Log "Restored $name" 'OK'
@@ -1148,6 +1178,43 @@ function Invoke-Rollback {
         }
     }
     Write-Log "Rollback complete. $restored mod(s) restored." 'OK'
+}
+
+function Remove-OldBackupSets {
+    <# Keeps BackupRoot bounded the same way deploy bounds DeployBackupRoot. #>
+    param([string] $BackupRoot, [int] $Keep)
+
+    if ($Keep -le 0) { return }
+    if (-not (Test-Path -LiteralPath $BackupRoot)) { return }
+
+    $stale = @(Get-ChildItem -LiteralPath $BackupRoot -Directory |
+               Sort-Object LastWriteTime -Descending | Select-Object -Skip $Keep)
+    foreach ($old in $stale) {
+        Remove-Item -LiteralPath $old.FullName -Recurse -Force
+        Write-Log "Pruned old backup set: $($old.Name)"
+    }
+}
+
+function Show-RollbackPlan {
+    param([string] $BackupRoot, [string] $ModsRoot, [string] $SetName)
+
+    if (-not (Test-Path -LiteralPath $BackupRoot)) { throw "No backup root at '$BackupRoot'." }
+    if ($SetName -and [System.IO.Path]::GetFileName($SetName) -ne $SetName) {
+        throw "-BackupSet must be a single folder name (e.g. '20260829-181500'), not a path."
+    }
+
+    $set = if ($SetName) {
+        Get-Item -LiteralPath (Join-Path $BackupRoot $SetName) -ErrorAction Stop
+    } else {
+        Get-ChildItem -LiteralPath $BackupRoot -Directory | Sort-Object Name -Descending | Select-Object -First 1
+    }
+    if (-not $set) { throw "No backup sets found under '$BackupRoot'." }
+
+    $zips = @(Get-ChildItem -LiteralPath $set.FullName -File |
+              Where-Object { $_.Extension -eq '.zip' })
+    Write-Log "Would restore $($zips.Count) mod(s) from backup set '$($set.Name)' into $ModsRoot" 'STEP'
+    foreach ($z in $zips) { Write-Log "  $($z.BaseName)" }
+    Write-Log 'Dry run. Re-run with -Rollback -Apply to restore.' 'WARN'
 }
 
 # ----------------------------------------------------------------------------------
@@ -1165,6 +1232,10 @@ Write-Log "Log file  : $script:LogFile"
 Test-ModsRoot -Path $cfg.ModsRoot
 
 if ($Rollback) {
+    if (-not $Apply) {
+        Show-RollbackPlan -BackupRoot $cfg.BackupRoot -ModsRoot $cfg.ModsRoot -SetName $BackupSet
+        return
+    }
     Assert-GameNotRunning
     Invoke-Rollback -BackupRoot $cfg.BackupRoot -ModsRoot $cfg.ModsRoot -SetName $BackupSet
     return
@@ -1216,11 +1287,16 @@ if ($NoApi -or -not $cfg.ApiKey) {
         $script:Stats.Checked, $script:Stats.Updated, $script:Stats.Failed) 'STEP'
     Write-Log "Report: $csv"
     if ($script:Stats.Updated -gt 0) {
+        Remove-OldBackupSets -BackupRoot $cfg.BackupRoot -Keep $KeepBackups
         Write-Log "Backups for this run: $backupSetDir" 'OK'
-        Write-Log "Undo with: .\Update-DarktideMods.ps1 -Rollback -BackupSet '$(Split-Path -Leaf $backupSetDir)'" 'OK'
+        Write-Log "Undo with: .\Update-DarktideMods.ps1 -Rollback -BackupSet '$(Split-Path -Leaf $backupSetDir)' -Apply" 'OK'
     }
     if (-not $Apply -and $script:Stats.Outdated -gt 0) {
         Write-Log "Read-only run. Re-run with -NoApi -Apply to install." 'WARN'
+    }
+    if ($script:Stats.Failed -gt 0) {
+        Write-Log "Finished with $($script:Stats.Failed) error(s)." 'ERROR'
+        exit 1
     }
     return
 }
@@ -1375,6 +1451,9 @@ foreach ($m in $mods) {
                         # Install-ModArchive guarantees the installed folder equals $m.Folder.
                         $installed.Add($m.Folder)
                         $action = "installed $chosenVersion from $($chosen.Name)"
+                    } else {
+                        $script:Stats.Failed++
+                        $action = 'install refused'
                     }
                 } catch {
                     $script:Stats.Failed++
@@ -1419,9 +1498,14 @@ if ($null -ne $script:RateLimit.DailyRemaining) {
     Write-Log "Nexus API budget left - hourly: $($script:RateLimit.HourlyRemaining), daily: $($script:RateLimit.DailyRemaining)"
 }
 if ($script:Stats.Updated -gt 0) {
+    Remove-OldBackupSets -BackupRoot $cfg.BackupRoot -Keep $KeepBackups
     Write-Log "Backups for this run: $backupSetDir" 'OK'
-    Write-Log "Undo with: .\Update-DarktideMods.ps1 -Rollback -BackupSet '$(Split-Path -Leaf $backupSetDir)'" 'OK'
+    Write-Log "Undo with: .\Update-DarktideMods.ps1 -Rollback -BackupSet '$(Split-Path -Leaf $backupSetDir)' -Apply" 'OK'
 }
 if (-not $Apply -and $script:Stats.Outdated -gt 0) {
     Write-Log "Read-only run. Download the archives, then re-run with -Apply to install." 'WARN'
+}
+if ($script:Stats.Failed -gt 0) {
+    Write-Log "Finished with $($script:Stats.Failed) error(s)." 'ERROR'
+    exit 1
 }

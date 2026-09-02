@@ -242,6 +242,16 @@ Describe 'Deploy-DarktideMods' {
             Add-Content -LiteralPath (Join-Path $script:Staging 'mod_load_order.txt') `
                         -Value 'mod_that_does_not_exist' -Encoding UTF8
 
+            & $script:Deployer -ConfigPath $script:Config -Apply -Confirm:$false *>&1 | Out-Null
+            $code = if (Test-Path Variable:LASTEXITCODE) { $LASTEXITCODE } else { 0 }
+
+            $code | Should -Be 1
+        }
+
+        It 'prints which load order entries are missing' {
+            Add-Content -LiteralPath (Join-Path $script:Staging 'mod_load_order.txt') `
+                        -Value 'mod_that_does_not_exist' -Encoding UTF8
+
             $out = & $script:Deployer -ConfigPath $script:Config -Apply -Confirm:$false *>&1 | Out-String
 
             $out | Should -Match 'load order references missing folders'
