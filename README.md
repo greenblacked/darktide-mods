@@ -186,8 +186,9 @@ install it with `-Force -Only <folder>` if you're sure.
 
 ### 2. Close the game
 
-Both scripts refuse to run while `Darktide.exe` is open, since replacing a loaded mod file
-gives you a half-updated game.
+`-Apply` refuses to write while `Darktide.exe` is open, since replacing a loaded mod file
+gives you a half-updated game. Dry runs are fine with the game running — plan first, close,
+then apply.
 
 ### 3. Dry run first
 
@@ -213,6 +214,9 @@ In order, this:
 5. re-checks that every load-order entry resolves to a real folder;
 6. refreshes `darktide-modpack.lock.json`.
 
+If the update step fails, deploy does not run. If deploy finishes with problems, the
+lockfile is not refreshed. Either way the exit code is non-zero.
+
 Everything is a dry run until `-Apply`. Running it again when nothing has changed does
 nothing at all — see [Re-running is safe](#re-running-is-safe).
 
@@ -236,9 +240,9 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 | `check` | Ask Nexus what's outdated. Needs an API key. Read-only. |
 | `update` | Install newer archives from your download folder into staging. |
 | `deploy` | Push staging into the game folder. |
-| `sync` | `update` then `deploy`, then refresh the lockfile. The everyday one. |
-| `rollback` | Undo the last staging install. |
-| `restore` | Undo the last deploy to the game folder. |
+| `sync` | `update` then `deploy`, then refresh the lockfile. Stops if a step fails. |
+| `rollback` | Undo the last staging install. Dry run until `-Apply`. |
+| `restore` | Undo the last deploy to the game folder. Dry run until `-Apply`. |
 | `lock` | Regenerate `darktide-modpack.lock.json` from what's installed. |
 | `export` | Zip your whole loadout into one file, as a personal backup. |
 | `import` | Restore a loadout zip into staging and deploy it, in one step. |
@@ -347,8 +351,8 @@ Every verb is idempotent: running it twice does the same thing as running it onc
 - `mod_load_order.txt` is only ever appended to, and never with a name already in it.
 - `loader` compares the version you have against `<game>\.darktide-loader.json` and stops if
   they match — it doesn't even touch the bundle database, so it can't toggle your mods off.
-- Deploy backups are pruned to the newest `-KeepBackups` archives (default 10), so repeated
-  deploys cannot fill the disk.
+- Staging, deploy, and loader backups are each pruned to the newest `-KeepBackups`
+  archives (default 10), so repeated runs cannot fill the disk.
 
 ---
 
@@ -361,12 +365,12 @@ that a newer version exists before you go looking.
 |---|---|---|---|
 | Read installed versions | yes | yes | yes |
 | Know an update exists | **you check** | automatic | automatic |
-| Download the archive | **you click** | **you click** | automatic |
+| Download the archive | **you click** | **you click** | **you click** |
 | Install, backup, load order, deploy | yes | yes | yes |
 
-Free Nexus accounts cannot get download links from the API — `/download_link.json` returns
-403 — so the download click is always manual unless you're premium. That's a Nexus policy;
-working around it would mean scraping, which their terms prohibit.
+Installs always come from your `DownloadDir`. This tooling has no Nexus auto-download path,
+premium or otherwise — free accounts get HTTP 403 on `/download_link.json`, and scraping
+would breach their terms, so the browser click stays yours either way.
 
 To enable checking:
 
@@ -436,8 +440,8 @@ This tooling deletes and replaces directories, so it is deliberately paranoid:
 - **Staged installs.** A mod is extracted to `.staging-<name>\` and only swapped in once the
   new copy is on disk. A corrupt archive can never leave you with a deleted mod.
 - **Backs up before every write** — staging installs to `mod_backups\<timestamp>\`, deploys to
-  `deploy_backups\gamemods-<timestamp>.zip`. Retention is capped (default 10) so repeated
-  runs cannot fill the disk.
+  `deploy_backups\gamemods-<timestamp>.zip`, loader updates to `loader_backups\`. Retention is
+  capped (default 10) so repeated runs cannot fill the disk.
 - **Archive contents decide the target folder**, taken from the `*.mod` file inside. If that
   doesn't match the mod being updated, the install is refused rather than guessed at.
 - **Zip-slip guarded** — `../`, absolute paths, and backslash traversal are rejected, and every
@@ -584,13 +588,13 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser
 | `cannot be loaded because running scripts is disabled` | Execution policy. `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, then `Get-ChildItem *.ps1 \| Unblock-File`. |
 | `does not look like a Darktide install` | `GamePath` is wrong. It must be the folder containing `binaries\Darktide.exe` or `bundle\bundle_database.data` — not the Steam library root, not the `mods\` folder inside it. |
 | `is not a mods folder (no mod_load_order.txt, no base\)` | `ModsRoot` points somewhere that isn't a DMF mods folder. See step 3's note on creating staging. |
-| `Darktide.exe is running` | Close the game. Check for a hung process: `Get-Process Darktide`. |
+| `Darktide.exe is running` | You passed `-Apply` with the game open. Close it, or drop `-Apply` for a dry run. Hung process: `Get-Process Darktide`. |
 | `Nothing to do. Download mod archives...` | No `.zip` files in `DownloadDir`. Check the path in `config.json` and that your browser didn't save `.zip.crdownload`. |
 | Archive shows as `VERSION-UNKNOWN` | The filename was changed and the zip has no `info.json`. Install it deliberately: `.\darktide.ps1 update -Apply -Force -Only <folder>`. |
 | Archive shows as `NO-ARCHIVE` | That mod has no matching zip in `DownloadDir` — nothing is wrong, there's just nothing to install for it. |
 | `Skipping '<file>': no *.mod file inside` | Not a DMF mod archive (a texture pack, a readme bundle, or a nested zip). Ignored on purpose. |
 | Deploy says `Already in sync` when you expected work | Staging really does match the game folder. If you edited the game folder directly, that edit is what `-Mirror` or `-Force` is for. |
-| Game crashes on load after an update | `.\darktide.ps1 restore`, then bisect: comment out half of `mod_load_order.txt` with `--` and restart. See [After a Darktide patch](#after-a-darktide-patch). |
+| Game crashes on load after an update | `.\darktide.ps1 restore -Apply`, then bisect: comment out half of `mod_load_order.txt` with `--` and restart. See [After a Darktide patch](#after-a-darktide-patch). |
 | Mods silently stop loading after a game update | Steam replaced the patched bundle. `.\darktide.ps1 deploy -Apply -InstallLoader -RunToggle`. |
 | `HTTP 403 ... premium users only` | Expected on a free Nexus account. Version *checking* works on free; downloading through the API does not. Download in the browser. |
 | `HTTP 429` / rate limited | Nexus allows 100 requests/hour, 2500/day. Wait it out, or use `-NoApi`. |
