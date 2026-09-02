@@ -13,6 +13,8 @@ Framework loadout from PowerShell, with backups and a one-command rollback at ev
 > author's page. You download the mods yourself, from the authors, on Nexus. See
 > [Why a manifest](#why-a-manifest-and-not-the-mods).
 
+**First week:** [docs/first-week.md](docs/first-week.md) — init, loader, sync, undo, offline.
+
 ---
 
 ## Why
