@@ -24,9 +24,9 @@
     because it removes files. The pre-deploy backup is taken either way.
 
 .PARAMETER InstallLoader
-    Also copy the Darktide Mod Loader payload (binaries\, bundle\, tools\, toggle bat)
-    from -LoaderSource into the game folder. Needed on a fresh install and after Steam
-    verifies/repairs the game files.
+    Hand off to Install-DarktideLoader.ps1 (same path as 'darktide.ps1 loader') so the
+    loader is copied, versioned and patched in one place. Needed on a fresh install and
+    after Steam verifies/repairs the game files.
 
 .PARAMETER KeepBackups
     How many deploy backup zips to keep under DeployBackupRoot. Older archives are
@@ -337,28 +337,36 @@ if (($needsSync -or $Force) -and $PSCmdlet.ShouldProcess($gameMods, "Sync from $
     Write-Ok "  sync complete (robocopy code $rc)"
 }
 
-# ---- Mod loader payload ------------------------------------------------------------
+# ---- Mod loader --------------------------------------------------------------------
+# One implementation path: always call Install-DarktideLoader.ps1. The old inline copy
+# here drifted from the loader script (no version check, no unpatch/repatch, no staging
+# of mods\base). The dedicated script owns all of that.
 
+$loaderHandledPatch = $false
 if ($InstallLoader) {
-    if (-not $cfg.LoaderSource) {
-        Write-Warn 'InstallLoader requested but LoaderSource is not set in config.json - skipping.'
-    } elseif (-not (Test-Path -LiteralPath $cfg.LoaderSource -PathType Container)) {
-        Write-Warn "LoaderSource '$($cfg.LoaderSource)' not found - skipping."
-    } else {
-        Write-Step 'Installing mod loader payload...'
-        foreach ($item in @('binaries', 'bundle', 'tools', 'toggle_darktide_mods.bat')) {
-            $src = Join-Path $cfg.LoaderSource $item
-            if (-not (Test-Path -LiteralPath $src)) { continue }
-            if ($PSCmdlet.ShouldProcess((Join-Path $game $item), "Copy $item from loader")) {
-                if (Test-Path -LiteralPath $src -PathType Container) {
-                    & robocopy.exe $src (Join-Path $game $item) '/E' '/NFL' '/NDL' '/NJH' '/NJS' '/NP' | Out-Null
-                    if ($LASTEXITCODE -ge 8) { throw "Copying loader '$item' failed (robocopy $LASTEXITCODE)." }
-                } else {
-                    Copy-Item -LiteralPath $src -Destination $game -Force
-                }
-                Write-Ok "  $item"
-            }
+    $loaderScript = Join-Path $PSScriptRoot 'Install-DarktideLoader.ps1'
+    if (-not (Test-Path -LiteralPath $loaderScript)) {
+        throw "Install-DarktideLoader.ps1 not found next to Deploy-DarktideMods.ps1 (looked for '$loaderScript')."
+    }
+
+    # Under -Apply, gate on ShouldProcess the same way the old per-item copies did.
+    # (A deploy dry-run returns before this block, so the loader is only reached when writing.)
+    if ($PSCmdlet.ShouldProcess($game, 'Install Darktide Mod Loader')) {
+        Write-Step 'Installing mod loader via Install-DarktideLoader.ps1...'
+        $loaderParams = @{
+            ConfigPath = $ConfigPath
+            Confirm    = $false
+            Apply      = $true
         }
+        if ($cfg.LoaderSource) { $loaderParams['Source']      = $cfg.LoaderSource }
+        if ($cfg.GamePath)     { $loaderParams['GamePath']    = $cfg.GamePath }
+        if ($cfg.ModsRoot)     { $loaderParams['StagingMods'] = $cfg.ModsRoot }
+        if ($Force)            { $loaderParams['Force']       = $true }
+
+        & $loaderScript @loaderParams
+        # The loader patches with dtkit-patch --patch. The toggle bat flips state, so
+        # running it afterwards would undo the patch. Skip -RunToggle when we owned it.
+        $loaderHandledPatch = $true
     }
 }
 
@@ -366,7 +374,9 @@ if ($InstallLoader) {
 
 $toggle = Join-Path $game 'toggle_darktide_mods.bat'
 if ($RunToggle) {
-    if (Test-Path -LiteralPath $toggle) {
+    if ($loaderHandledPatch) {
+        Write-Warn 'Skipping -RunToggle: Install-DarktideLoader.ps1 already patches with dtkit-patch. The toggle bat flips state and would undo that.'
+    } elseif (Test-Path -LiteralPath $toggle) {
         if ($PSCmdlet.ShouldProcess($toggle, 'Run mod loader patcher')) {
             Write-Step 'Running toggle_darktide_mods.bat...'
             Push-Location $game

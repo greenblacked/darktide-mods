@@ -142,7 +142,22 @@ Describe 'Initialize-DarktideConfig' {
         $cfg.GamePath   | Should -Be $script:Game
         $cfg.ModsRoot   | Should -Be $script:Mods
         $cfg.GameDomain | Should -Be 'warhammer40kdarktide'
-        $cfg.ApiKey     | Should -BeNullOrEmpty
+        $cfg.PSObject.Properties.Name | Should -Not -Contain 'ApiKey'
+    }
+
+    It 'does not persist NEXUS_API_KEY into config.json' {
+        $prev = $env:NEXUS_API_KEY
+        try {
+            $env:NEXUS_API_KEY = 'should-never-land-in-config'
+            & $script:Initer -ConfigPath $script:Config -GamePath $script:Game -ModsRoot $script:Mods -Confirm:$false *>&1 | Out-Null
+
+            $raw = Get-Content -LiteralPath $script:Config -Raw -Encoding UTF8
+            $raw | Should -Not -Match 'ApiKey'
+            $raw | Should -Not -Match 'should-never-land-in-config'
+        } finally {
+            if ($null -eq $prev) { Remove-Item Env:NEXUS_API_KEY -ErrorAction SilentlyContinue }
+            else { $env:NEXUS_API_KEY = $prev }
+        }
     }
 
     It 'derives both backup folders' {
