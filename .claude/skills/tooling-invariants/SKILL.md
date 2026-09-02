@@ -173,6 +173,8 @@ Every script opens with `Set-StrictMode -Version Latest` and
   `$script:PascalCase`.
 - Prefer `-LiteralPath` over `-Path` for filesystem calls. Mod folder names contain
   brackets and other glob metacharacters, and `-Path` will silently do the wrong thing.
+  `New-Item` on Windows PowerShell 5.1 has no `-LiteralPath`; for destinations taken
+  from archive or mod names use `[System.IO.Directory]::CreateDirectory` instead.
 - Failures are surfaced, not swallowed. There are three bare `catch { }` blocks in
   `Update-DarktideMods.ps1` (lines 107, 252, 282) and they are deliberate, narrow
   exceptions — not a pattern to copy.

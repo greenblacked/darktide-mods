@@ -221,16 +221,14 @@ function Expand-BackupArchive {
             }
 
             if ($rel.EndsWith('/')) {
-                if (-not (Test-Path -LiteralPath $target)) {
-                    New-Item -ItemType Directory -LiteralPath $target -Force | Out-Null
-                }
+                # CreateDirectory, not New-Item -Path: 5.1 has no -LiteralPath on New-Item,
+                # and -Path globs on [] in folder names.
+                [void][System.IO.Directory]::CreateDirectory($target)
                 continue
             }
 
             $parent = Split-Path -Parent $target
-            if ($parent -and -not (Test-Path -LiteralPath $parent)) {
-                New-Item -ItemType Directory -LiteralPath $parent -Force | Out-Null
-            }
+            if ($parent) { [void][System.IO.Directory]::CreateDirectory($parent) }
             [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $target, $true)
         }
     } finally { $zip.Dispose() }
@@ -319,7 +317,7 @@ if ($Restore) {
     $stage = "$gameMods.restoring"
     if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
     try {
-        New-Item -ItemType Directory -LiteralPath $stage -Force | Out-Null
+        [void][System.IO.Directory]::CreateDirectory($stage)
         Expand-BackupArchive -ZipPath $zip.FullName -Destination $stage
     } catch {
         Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue

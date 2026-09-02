@@ -210,7 +210,7 @@ Describe 'Expand-ModArchive' {
 
     It 'extracts into a destination whose name contains brackets' {
         $dest = Join-Path $script:Sandbox 'mod[1]'
-        New-Item -ItemType Directory -LiteralPath $dest -Force | Out-Null
+        [void][System.IO.Directory]::CreateDirectory($dest)
         $zip = New-TestZip -Path (Join-Path $script:Sandbox 'brackets.zip') -Entries @{
             'mymod/mymod.mod'     = 'return {}'
             'mymod/scripts/a.lua' = '-- a'

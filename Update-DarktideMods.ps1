@@ -766,11 +766,13 @@ function Expand-ModArchive {
             }
 
             if ($rel.EndsWith('/')) {
-                if (-not (Test-Path -LiteralPath $target)) { New-Item -ItemType Directory -LiteralPath $target -Force | Out-Null }
+                # CreateDirectory, not New-Item -Path: 5.1 has no -LiteralPath on New-Item,
+                # and -Path globs on [] in mod folder names.
+                [void][System.IO.Directory]::CreateDirectory($target)
                 continue
             }
             $parent = Split-Path -Parent $target
-            if ($parent -and -not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -LiteralPath $parent -Force | Out-Null }
+            if ($parent) { [void][System.IO.Directory]::CreateDirectory($parent) }
             [System.IO.Compression.ZipFileExtensions]::ExtractToFile($e, $target, $true)
         }
     } finally {
@@ -867,7 +869,7 @@ function Install-ModArchive {
         # Extract to a staging folder FIRST. Nothing is destroyed until we know the
         # new copy is on disk, so a bad archive can never leave you with no mod.
         if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
-        New-Item -ItemType Directory -LiteralPath $stage -Force | Out-Null
+        [void][System.IO.Directory]::CreateDirectory($stage)
         try {
             Expand-ModArchive -ZipPath $ZipPath -Destination $stage -Prefix $layout.Prefix
         } catch {
@@ -888,7 +890,7 @@ function Install-ModArchive {
             Write-Log "Swap failed for $($layout.ModName): $($_.Exception.Message)" 'ERROR'
             if ($backup -and -not (Test-Path -LiteralPath $target)) {
                 Write-Log "Restoring $($layout.ModName) from backup." 'WARN'
-                New-Item -ItemType Directory -LiteralPath $target -Force | Out-Null
+                [void][System.IO.Directory]::CreateDirectory($target)
                 Expand-ModArchive -ZipPath $backup -Destination $target -Prefix ''
             }
             Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
@@ -1150,7 +1152,7 @@ function Invoke-Rollback {
             $stage = Join-Path $ModsRoot ".staging-$name"
             if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
             try {
-                New-Item -ItemType Directory -LiteralPath $stage -Force | Out-Null
+                [void][System.IO.Directory]::CreateDirectory($stage)
                 Expand-ModArchive -ZipPath $z.FullName -Destination $stage -Prefix ''
             } catch {
                 Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue

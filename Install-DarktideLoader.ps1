@@ -166,16 +166,14 @@ function Expand-LoaderArchive {
             }
 
             if ($rel.EndsWith('/')) {
-                if (-not (Test-Path -LiteralPath $target)) {
-                    New-Item -ItemType Directory -LiteralPath $target -Force | Out-Null
-                }
+                # CreateDirectory, not New-Item -Path: 5.1 has no -LiteralPath on New-Item,
+                # and -Path globs on [] in folder names.
+                [void][System.IO.Directory]::CreateDirectory($target)
                 continue
             }
 
             $parent = Split-Path -Parent $target
-            if ($parent -and -not (Test-Path -LiteralPath $parent)) {
-                New-Item -ItemType Directory -LiteralPath $parent -Force | Out-Null
-            }
+            if ($parent) { [void][System.IO.Directory]::CreateDirectory($parent) }
             [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $target, $true)
         }
     } finally { $zip.Dispose() }
@@ -325,7 +323,7 @@ try {
             throw "Loader source '$sourcePath' is a file but not a .zip."
         }
         $tempExtract = Join-Path ([System.IO.Path]::GetTempPath()) ("dt-loader-" + [guid]::NewGuid().ToString('N').Substring(0, 10))
-        New-Item -ItemType Directory -LiteralPath $tempExtract -Force | Out-Null
+        [void][System.IO.Directory]::CreateDirectory($tempExtract)
         Expand-LoaderArchive -ZipPath $sourcePath -Destination $tempExtract
 
         # Some archives wrap everything in one top folder.

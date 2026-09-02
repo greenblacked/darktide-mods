@@ -84,16 +84,14 @@ function Expand-LoadoutArchive {
             }
 
             if ($rel.EndsWith('/')) {
-                if (-not (Test-Path -LiteralPath $target)) {
-                    New-Item -ItemType Directory -LiteralPath $target -Force | Out-Null
-                }
+                # CreateDirectory, not New-Item -Path: 5.1 has no -LiteralPath on New-Item,
+                # and -Path globs on [] in folder names.
+                [void][System.IO.Directory]::CreateDirectory($target)
                 continue
             }
 
             $parent = Split-Path -Parent $target
-            if ($parent -and -not (Test-Path -LiteralPath $parent)) {
-                New-Item -ItemType Directory -LiteralPath $parent -Force | Out-Null
-            }
+            if ($parent) { [void][System.IO.Directory]::CreateDirectory($parent) }
             [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $target, $true)
         }
     } finally { $zip.Dispose() }
