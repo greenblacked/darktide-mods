@@ -112,7 +112,7 @@ notepad config.json
 | `LoaderSource` | Unzipped Darktide Mod Loader folder or its `.zip`. `init` fills this in if it finds one. |
 | `BackupRoot` | Staging backups. Leave blank for `<parent of ModsRoot>\mod_backups`. |
 | `DeployBackupRoot` | Game-folder backups. Leave blank for `<parent of ModsRoot>\deploy_backups`. |
-| `ApiKey` | Leave blank. Prefer the `NEXUS_API_KEY` environment variable — see [Version checking](#version-checking-optional). |
+| `ApiKey` | Do not set. `init` will not write this field. Use the `NEXUS_API_KEY` environment variable — see [Version checking](#version-checking-optional). |
 
 `config.json` is gitignored and never leaves your machine. Use `\\` in JSON paths.
 
@@ -252,7 +252,10 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 ```powershell
 .\darktide.ps1 update -Apply -Only markers_aio,scoreboard   # scope to specific mods
 .\darktide.ps1 deploy -Apply -Mirror                        # also delete mods no longer staged
-.\darktide.ps1 deploy -Apply -InstallLoader -RunToggle      # fresh install / after a game patch
+.\darktide.ps1 deploy -Apply -InstallLoader               # fresh install / after a game patch
+# -InstallLoader calls Install-DarktideLoader.ps1 (copy + dtkit-patch). Do not also pass
+# -RunToggle on that run: the toggle bat flips state and would undo the patch.
+.\darktide.ps1 deploy -Apply -RunToggle                   # re-patch only, loader already present
 .\darktide.ps1 update -Apply -Force -Only NumericUI         # reinstall or downgrade one mod
 ```
 
@@ -595,7 +598,7 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser
 | `Skipping '<file>': no *.mod file inside` | Not a DMF mod archive (a texture pack, a readme bundle, or a nested zip). Ignored on purpose. |
 | Deploy says `Already in sync` when you expected work | Staging really does match the game folder. If you edited the game folder directly, that edit is what `-Mirror` or `-Force` is for. |
 | Game crashes on load after an update | `.\darktide.ps1 restore -Apply`, then bisect: comment out half of `mod_load_order.txt` with `--` and restart. See [After a Darktide patch](#after-a-darktide-patch). |
-| Mods silently stop loading after a game update | Steam replaced the patched bundle. `.\darktide.ps1 deploy -Apply -InstallLoader -RunToggle`. |
+| Mods silently stop loading after a game update | Steam replaced the patched bundle. `.\darktide.ps1 loader -Apply` or `.\darktide.ps1 deploy -Apply -RunToggle`. |
 | `HTTP 403 ... premium users only` | Expected on a free Nexus account. Version *checking* works on free; downloading through the API does not. Download in the browser. |
 | `HTTP 429` / rate limited | Nexus allows 100 requests/hour, 2500/day. Wait it out, or use `-NoApi`. |
 
