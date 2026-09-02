@@ -1,8 +1,10 @@
 name: CI
 
 # The 'validate' job runs automatically on every push and pull request.
-# 'release' and 'refresh-lock' publish things, so they stay manual-only - both are
-# gated on the event being a workflow_dispatch, not just on the task input.
+# 'release' and 'refresh-lock' stay manual-only: both are gated on
+# workflow_dispatch, not just on the task input, so a push can never publish.
+# refresh-lock needs a Nexus API key. This repo is run without one, so that
+# job is left in the file for completeness and is not scheduled.
 on:
   push:
     branches: ['**']
@@ -40,19 +42,21 @@ concurrency:
 
 jobs:
 
-  # ---------------------------------------------------------------------------
-  # Lint + validate. Always runs; the other jobs depend on it.
-  # ---------------------------------------------------------------------------
   validate:
     name: Lint and validate
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Install PSScriptAnalyzer and Pester
         shell: pwsh
         run: |
+          if (-not (Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue)) {
+            Register-PSRepository -Default
+          }
           Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
           if (-not (Get-Module -ListAvailable -Name PSScriptAnalyzer)) {
             Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
@@ -61,8 +65,6 @@ jobs:
             Install-Module Pester -MinimumVersion 5.5.0 -Scope CurrentUser -Force -SkipPublisherCheck
           }
 
-      # The suite builds its own staging folder, fake game install and archives
-      # under the runner's temp directory. It needs no game, no key and no network.
       - name: Run tests
         shell: pwsh
         run: ./Invoke-Tests.ps1 -Output Detailed -SkipValidator
@@ -98,6 +100,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       # The validator must stay genuinely cross-platform. A Windows-only path
       # pattern here is invisible on the Windows job but breaks this one.
@@ -161,6 +165,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Resolve version
         id: ver
@@ -187,9 +193,6 @@ jobs:
         run: |
           $dist = 'dist/darktide-mods'
           New-Item -ItemType Directory -Path $dist -Force | Out-Null
-
-          # Explicit allow-list. Anything not named here does not ship - this is what
-          # guarantees no mod content or local config ends up in a published artifact.
           $include = @(
             'darktide.ps1',
             'Update-DarktideMods.ps1',
@@ -210,17 +213,11 @@ jobs:
             if (-not (Test-Path $f)) { throw "Missing required file: $f" }
             Copy-Item $f -Destination $dist -Force
           }
-
-          # Ship the suite too, so anyone can verify the tooling before running it
-          # against their own game folder.
           Copy-Item 'Invoke-Tests.ps1' -Destination $dist -Force
           Copy-Item 'tests' -Destination $dist -Recurse -Force
-
-          # Belt and braces: refuse to ship if anything mod-shaped slipped in.
           $bad = Get-ChildItem $dist -Recurse -File |
                  Where-Object { $_.Extension -in @('.mod', '.zip') -or $_.Name -eq 'config.json' }
           if ($bad) { throw "Refusing to package: $($bad.Name -join ', ')" }
-
           Write-Host "Packaged $((Get-ChildItem $dist -File).Count) files."
 
       - name: Create archive
@@ -280,11 +277,6 @@ jobs:
             --notes-file release-notes.md `
             $pre
 
-  # ---------------------------------------------------------------------------
-  # Refresh the lockfile's version data from the Nexus API and open a PR.
-  # Metadata only - works fine on a free Nexus account, downloads nothing.
-  # Needs the NEXUS_API_KEY repository secret.
-  # ---------------------------------------------------------------------------
   refresh-lock:
     name: Refresh lockfile from Nexus
     needs: [validate, cross-platform]
@@ -296,6 +288,8 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Check for the API key
         shell: pwsh
@@ -303,7 +297,7 @@ jobs:
           NEXUS_API_KEY: ${{ secrets.NEXUS_API_KEY }}
         run: |
           if (-not $env:NEXUS_API_KEY) {
-            throw "The NEXUS_API_KEY repository secret is not set. Add it under Settings -> Secrets and variables -> Actions. A free Nexus account is enough - this only reads version metadata."
+            throw "The NEXUS_API_KEY repository secret is not set. This job is unused on this repo."
           }
 
       - name: Query Nexus for current versions
@@ -319,10 +313,8 @@ jobs:
             'Application-Name'    = 'darktide-mods-ci'
             'Application-Version' = '1.0.0'
           }
-
           $changed = 0
           $rows    = @()
-
           foreach ($m in $lock.mods) {
             if (-not $m.modId) { continue }
             $uri = "https://api.nexusmods.com/v1/games/$($lock.game)/mods/$($m.modId).json"
@@ -339,15 +331,13 @@ jobs:
               $m.versionSource = 'nexus-api'
               $changed++
             }
-            Start-Sleep -Milliseconds 400   # stay well inside 100 req/hour
+            Start-Sleep -Milliseconds 400
           }
-
           if ($changed -gt 0) {
             $lock.generatedAt = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
             $lock.generatedBy = 'ci/refresh-lock'
             $lock | ConvertTo-Json -Depth 8 | Set-Content ./darktide-modpack.lock.json -Encoding utf8
           }
-
           $body = @("Updated **$changed** mod version(s) from the Nexus API.", "")
           if ($rows) {
             $body += "| Mod | Was | Now | Page |"
@@ -356,7 +346,6 @@ jobs:
           }
           $body -join "`n" | Out-File pr-body.md -Encoding utf8
           "CHANGED=$changed" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          $body -join "`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
       - name: Open pull request
         if: env.CHANGED != '0'

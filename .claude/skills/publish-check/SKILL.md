@@ -37,8 +37,9 @@ Sweep, in this order:
    check, which scans trailers for any agent, not one vendor. It reads `%B` so line
    breaks survive; a format that packs fields onto one line glues the trailer to the
    subject and the anchor stops matching, which is how a draft of that check passed on
-   a commit it should have caught. In a shallow CI clone it can only see the fetched
-   commits and warns when the count is small.
+   a commit it should have caught. CI checks out with `fetch-depth: 0` so the scan
+   sees the whole history, not only the tip. A shallow clone still warns when the
+   reachable count is small.
 3. **Pull request bodies** - fetch each one and read what is actually stored, not
    what you submitted. These differ.
 4. **Comments and reviews** - on every pull request the work touches, not only the
