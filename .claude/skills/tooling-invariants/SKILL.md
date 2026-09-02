@@ -35,8 +35,9 @@ is what prevents a mistyped `GamePath` in `config.json` from turning a recursive
 loose on `C:\`. Any new code path that writes into the game folder goes through it.
 
 **`Assert-GameNotRunning`** refuses to mutate while `Darktide.exe` holds file locks. It
-is gated on `-Apply` in both scripts: a dry run writes nothing, so it has no business
-demanding the game be closed.
+is gated on `-Apply` in update, deploy and the loader: a dry run writes nothing, so it
+has no business demanding the game be closed. `rollback` is also gated on `-Apply`;
+without it the updater only lists the backup set it would restore.
 
 It exists twice, in `Deploy-DarktideMods.ps1` and `Update-DarktideMods.ps1`, and the two
 bodies are deliberately byte-identical apart from a comment naming the other file. They
@@ -66,7 +67,8 @@ Mod folders are zipped to a backup root before being replaced (`New-ModBackup`,
 repeated deploys cannot silently fill a disk.
 
 If you add a new operation that replaces user data, it needs the same two halves: a
-backup, and a bound on how many backups accumulate.
+backup, and a bound on how many backups accumulate. Staging (`-KeepBackups` on the
+updater) and loader backups follow the same pattern as deploy.
 
 ## Archive extraction: normalise, then check, then re-verify
 

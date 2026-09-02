@@ -24,7 +24,8 @@
     'dtkit-patch --patch', never the toggle script: the toggle flips state, so running
     it twice silently disables every mod.
 
-    Nothing is written without -Apply.
+    Nothing is written without -Apply. Dry runs work with the game open; -Apply
+    refuses to write while Darktide.exe is running.
 
 .PARAMETER Source
     The unzipped loader folder, or the .zip you downloaded. Defaults to LoaderSource
@@ -35,6 +36,10 @@
 
 .PARAMETER SkipPatch
     Copy the files but do not run the patcher.
+
+.PARAMETER KeepBackups
+    How many loader backup folders to keep. Older ones are pruned after a successful
+    install. Default 10; 0 keeps everything.
 
 .PARAMETER PatcherPath
     Override the dtkit-patch executable. Used by the tests.
@@ -57,7 +62,10 @@ param(
     [string] $PatcherPath,
     [switch] $Apply,
     [switch] $Force,
-    [switch] $SkipPatch
+    [switch] $SkipPatch,
+
+    [ValidateRange(0, 1000)]
+    [int] $KeepBackups = 10
 )
 
 Set-StrictMode -Version Latest
@@ -228,9 +236,6 @@ if (-not $marker) {
     throw "'$game' does not look like a Darktide install. Refusing to write loader files there."
 }
 
-$running = Get-Process -Name 'Darktide' -ErrorAction SilentlyContinue
-if ($running) { throw "Darktide.exe is running (PID $($running.Id -join ', ')). Close the game first." }
-
 # ---- Resolve the loader source -----------------------------------------------------
 
 Write-Step '=== Darktide Mod Loader ==='
@@ -336,6 +341,10 @@ bundle\*.patch_* file inside it.
         return
     }
 
+    # Only when we are actually going to write - same rule as update/deploy.
+    $running = Get-Process -Name 'Darktide' -ErrorAction SilentlyContinue
+    if ($running) { throw "Darktide.exe is running (PID $($running.Id -join ', ')). Close the game first." }
+
     if (-not $PSCmdlet.ShouldProcess($game, "Install mod loader $newVersion")) { return }
 
     # ---- Back up what is there now -------------------------------------------------
@@ -361,6 +370,15 @@ bundle\*.patch_* file inside it.
             }
         }
         Write-Ok "Backed up the current loader -> $backupDir"
+
+        if ($KeepBackups -gt 0 -and (Test-Path -LiteralPath $backupRoot)) {
+            $stale = @(Get-ChildItem -LiteralPath $backupRoot -Directory |
+                       Sort-Object LastWriteTime -Descending | Select-Object -Skip $KeepBackups)
+            foreach ($old in $stale) {
+                Remove-Item -LiteralPath $old.FullName -Recurse -Force
+                Write-Host "  pruned old loader backup: $($old.Name)"
+            }
+        }
     }
 
     # ---- Unpatch before replacing files ---------------------------------------------

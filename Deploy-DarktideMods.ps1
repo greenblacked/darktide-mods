@@ -28,6 +28,10 @@
     from -LoaderSource into the game folder. Needed on a fresh install and after Steam
     verifies/repairs the game files.
 
+.PARAMETER KeepBackups
+    How many deploy backup zips to keep under DeployBackupRoot. Older archives are
+    pruned after a successful backup. Default 10; 0 keeps everything.
+
 .EXAMPLE
     .\Deploy-DarktideMods.ps1 -Apply -WhatIf
     Shows exactly what would be copied.
@@ -326,7 +330,7 @@ if (($needsSync -or $Force) -and $PSCmdlet.ShouldProcess($gameMods, "Sync from $
         Write-Err "robocopy failed with exit code $rc."
         if ($backupZip) {
             Write-Warn "The live mods folder may be inconsistent. Restore with:"
-            Write-Warn "  Expand-Archive -LiteralPath '$backupZip' -DestinationPath '$gameMods' -Force"
+            Write-Warn "  .\darktide.ps1 restore -Apply -BackupSet '$(Split-Path -Leaf $backupZip)'"
         }
         throw "Deploy aborted: robocopy exit code $rc."
     }
@@ -414,13 +418,18 @@ if (-not (Test-Path -LiteralPath $toggle)) {
 }
 
 Write-Host ''
-if ($ok) { Write-Ok 'Deploy OK.' } else { Write-Err 'Deploy finished with problems - see above.' }
+if ($ok) {
+    Write-Ok 'Deploy OK.'
+} else {
+    Write-Err 'Deploy finished with problems - see above.'
+    exit 1
+}
 
 if ($backupZip) {
     Write-Host ''
     Write-Host 'Undo this deploy:' -ForegroundColor Cyan
-    Write-Host "  Remove-Item -LiteralPath '$gameMods' -Recurse -Force"
-    Write-Host "  Expand-Archive -LiteralPath '$backupZip' -DestinationPath '$gameMods'"
+    Write-Host "  .\darktide.ps1 restore -Apply"
+    Write-Host "  # or: .\darktide.ps1 restore -Apply -BackupSet '$(Split-Path -Leaf $backupZip)'"
 }
 
 Write-Host ''

@@ -312,6 +312,6 @@ if ($PSCmdlet.ShouldProcess($ConfigPath, 'Write configuration')) {
     Write-Host ''
     Write-Host 'Next:' -ForegroundColor Cyan
     Write-Host '  .\darktide.ps1 status                       see what is installed'
+    Write-Host '  .\darktide.ps1 loader -Apply                install the Darktide Mod Loader'
     Write-Host '  .\darktide.ps1 import -Path <loadout.zip> -Apply   restore a saved loadout'
-    Write-Host '  .\darktide.ps1 sync -Apply                  install downloads, then deploy'
 }

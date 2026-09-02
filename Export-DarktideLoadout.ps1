@@ -15,8 +15,7 @@
     which are theirs to distribute, not yours or mine. Keep it as a personal backup.
 
     Restore it with:
-        Expand-Archive -LiteralPath <zip> -DestinationPath <ModsRoot>
-        .\darktide.ps1 deploy -Apply
+        .\darktide.ps1 import -Path <zip> -Apply
 
 .PARAMETER OutDir
     Where to write the archive. Defaults to the staging folder's parent.
@@ -204,8 +203,7 @@ try {
         "Mods     : $($modDirs.Count)",
         '',
         'Restore:',
-        '  Expand-Archive -LiteralPath <this zip> -DestinationPath <your staging mods folder>',
-        '  .\darktide.ps1 deploy -Apply',
+        '  .\darktide.ps1 import -Path <this zip> -Apply',
         '',
         'These mod files are the work of their individual authors, published on Nexus Mods.',
         'This archive is a personal backup. Do not redistribute it. darktide-modpack.lock.json',
@@ -226,7 +224,6 @@ Write-Host ''
 Write-Ok "Wrote $OutFile ($size MB)"
 Write-Host ''
 Write-Host 'Restore it on another machine with:' -ForegroundColor Cyan
-Write-Host "  Expand-Archive -LiteralPath '$OutFile' -DestinationPath '<ModsRoot>'"
-Write-Host '  .\darktide.ps1 deploy -Apply'
+Write-Host "  .\darktide.ps1 import -Path '$OutFile' -Apply"
 Write-Host ''
 Write-Warn 'Personal backup only - it holds other authors'' mod files. Do not republish it.'
