@@ -86,6 +86,11 @@ jobs:
           $md += "| Lockfile generated | $($lock.generatedAt) |"
           $md | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
+  # ---------------------------------------------------------------------------
+  # Linux guard. The validator claims to be cross-platform and Invoke-Tests.ps1
+  # claims to refuse the suite off Windows - neither claim is observable from a
+  # windows-latest job, so both regressed silently until they were caught by hand.
+  # ---------------------------------------------------------------------------
   cross-platform:
     name: Validator and guard on Linux
     runs-on: ubuntu-latest
@@ -95,12 +100,20 @@ jobs:
         with:
           fetch-depth: 0
 
+      # The validator must stay genuinely cross-platform. A Windows-only path
+      # pattern here is invisible on the Windows job but breaks this one.
       - name: Validator runs clean on Linux
         shell: pwsh
         run: ./Test-Modpack.ps1
 
+      # Exit 3 means "nothing failed, but the suite was skipped". Asserting the
+      # code, not just the text, is what stops it silently reverting to 0 - which
+      # would let a caller read a skipped suite as a passing one.
       - name: Invoke-Tests refuses the suite and reports it as unverified
         run: |
+          # No pipelines and no '|| true' around the runs being measured: both
+          # clobber $? / PIPESTATUS and would make every assertion read 0, which
+          # is exactly the false pass this step exists to catch.
           check() {
             local want=$1 label=$2; shift 2
             set +e
@@ -123,17 +136,24 @@ jobs:
                 pwsh -NoProfile -File ./Invoke-Tests.ps1 -AllowNonWindows -Path Lock -Output None -SkipValidator
         shell: bash
 
+      # The setup script is the only shell in the repo and nothing else checks it.
       - name: Lint the test-environment setup script
         run: |
           set -euo pipefail
           script=.claude/skills/validate-change/scripts/setup-test-env.sh
           bash -n "$script"
           shellcheck "$script"
-          "$script" --check || [ $? -eq 3 ]
+          "$script" --check || [ $? -eq 3 ]   # 3 = tools absent, which is expected here
         shell: bash
 
+  # ---------------------------------------------------------------------------
+  # Build a release zip and publish it.
+  # Ships the tooling and the manifest. Never any mod files.
+  # ---------------------------------------------------------------------------
   release:
     name: Build and publish release
+    # Both checks, not just the Windows one: publishing is irreversible, so a red
+    # Linux guard should stop it too.
     needs: [validate, cross-platform]
     if: github.event_name == 'workflow_dispatch' && inputs.task == 'release'
     runs-on: windows-latest
@@ -148,11 +168,17 @@ jobs:
       - name: Resolve version
         id: ver
         shell: pwsh
+        # The input arrives through the environment, never pasted into the script
+        # body. Interpolating it inside a quoted PowerShell string lets a value
+        # containing a quote close that string and run arbitrary code, in a job
+        # that holds contents:write and a release token.
         env:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
           $v = "$($env:INPUT_VERSION)".Trim()
           if (-not $v) { $v = (Get-Date -Format 'yyyy.MM.dd') + '.' + $env:GITHUB_RUN_NUMBER }
+          # Constrain the shape before it reaches a tag name, a filename and
+          # GITHUB_OUTPUT. A newline here would forge extra step outputs.
           if ($v -notmatch '^[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}$') {
               throw "Refusing version '$v': expected letters, digits and . + _ - only (max 64 chars)."
           }
@@ -320,7 +346,9 @@ jobs:
 
       - name: Open pull request
         if: env.CHANGED != '0'
-        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1
+        # Pinned to the commit v8 pointed at on 2026-08-30. A tag can be moved;
+        # this job has contents:write and pull-requests:write, so it should not be.
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1  # v8
         with:
           commit-message: 'chore: refresh lockfile versions from Nexus'
           branch: ci/refresh-lockfile

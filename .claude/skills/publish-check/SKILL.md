@@ -33,15 +33,39 @@ Sweep, in this order:
 1. **Files** - `Test-Modpack.ps1` covers these with its `no agent attribution
    committed` check. It scans tracked `.md`, `.ps1`, `.json`, `.yml` and `.sh`
    content for the credit markers. It reads and throws; it never edits.
-2. **Pull request bodies** - fetch each one and read what is actually stored, not
+2. **Commit messages** - covered by the `no agent attribution in commit messages`
+   check, which scans trailers for any agent, not one vendor. It reads `%B` so line
+   breaks survive; a format that packs fields onto one line glues the trailer to the
+   subject and the anchor stops matching, which is how a draft of that check passed on
+   a commit it should have caught. CI checks out with `fetch-depth: 0` so the scan
+   sees the whole history, not only the tip. A shallow clone still warns when the
+   reachable count is small.
+3. **Pull request bodies** - fetch each one and read what is actually stored, not
    what you submitted. These differ.
-3. **Comments and reviews** - on every pull request the work touches, not only the
+4. **Comments and reviews** - on every pull request the work touches, not only the
    current one.
-4. **Commit messages** - `git log --format="%s%n%b"` for trailers, and
-   `git log --format="%an <%ae>"` to confirm the author is the repository owner.
 
-Steps 2 to 4 are outside any repo-side check's reach. That is the gap the file check
-cannot close, and the reason this pass is manual.
+Steps 3 and 4 stay manual: nothing inside the repository can see what GitHub stores.
+
+## When it has already been published
+
+An agent tool's trailer once reached the default branch and added a bot to this
+repository's contributors list, which is generated from those trailers and not
+editable directly. The only fix is rewriting history, and it is worth knowing the
+shape before starting:
+
+- Removing the trailer changes that commit's hash and every descendant's, so it needs
+  a force-push to the default branch and anyone holding a clone has to reset.
+- Prove the content survived before pushing. Compare `git rev-parse main^{tree}`
+  against the rewritten branch's tree: identical hashes mean not one byte moved, which
+  is the claim worth making rather than "the diff looked fine".
+- Push the rewritten history to a branch first. If the force-push is refused, the work
+  is already on the remote for whoever does have the permission.
+- The contributors panel updates on GitHub's own schedule, so it lagging is not
+  evidence the rewrite failed.
+
+Cheaper than any of that: keep the trailer out. Configure the tool that adds it, and
+check before the merge rather than after.
 
 ## Pass 2 - prose
 

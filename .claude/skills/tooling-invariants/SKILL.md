@@ -143,10 +143,12 @@ Nothing here credits an AI assistant: no `Co-Authored-By` trailer naming one, no
 the repository owner. Tooling appends such a footer to a PR body on creation, so remove
 it afterwards and verify it is gone rather than assuming.
 
-`Test-Modpack.ps1` enforces the file-content half with its `no agent attribution
-committed` check. It cannot see commit messages or PR bodies, so those stay a matter of
-care. Naming a model in prose is not attribution; the vendored `sepia` skill catalogues
-model fingerprints by name, and the `.claude/skills/` path is fixed by the tooling.
+`Test-Modpack.ps1` enforces the file-content half with `no agent attribution
+committed`, and the trailer half with `no agent attribution in commit messages`.
+CI checks out with `fetch-depth: 0` so the trailer scan sees the whole history.
+Pull request bodies stay a matter of care. Naming a model in prose is not
+attribution; the vendored `sepia` skill catalogues model fingerprints by name, and
+the `.claude/skills/` path is fixed by the tooling.
 
 `CLAUDE.md` states the same rule for anyone arriving without these skills loaded.
 
