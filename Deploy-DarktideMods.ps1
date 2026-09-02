@@ -414,7 +414,12 @@ if (-not (Test-Path -LiteralPath $toggle)) {
 }
 
 Write-Host ''
-if ($ok) { Write-Ok 'Deploy OK.' } else { Write-Err 'Deploy finished with problems - see above.' }
+if ($ok) {
+    Write-Ok 'Deploy OK.'
+} else {
+    Write-Err 'Deploy finished with problems - see above.'
+    exit 1
+}
 
 if ($backupZip) {
     Write-Host ''

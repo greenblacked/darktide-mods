@@ -235,10 +235,64 @@ Describe 'Offline update' {
             }
 
             & $script:Updater -ConfigPath $script:Config -NoApi -Apply -Confirm:$false *>&1 | Out-Null
+            $code = if (Test-Path Variable:LASTEXITCODE) { $LASTEXITCODE } else { 0 }
 
+            $code | Should -Be 1
             Test-Path (Join-Path $script:Staging 'alpha_mod\alpha_mod.mod') | Should -BeTrue
             @(Get-ChildItem -LiteralPath $script:Staging -Directory -Force |
               Where-Object { $_.Name -like '.staging-*' }) | Should -BeNullOrEmpty
+        }
+
+        It 'exits non-zero when an install fails' {
+            $null = New-TestZip -Path (Join-Path $script:Downloads 'Alpha Mod-447-3-0-0-1719209950.zip') -Entries @{
+                'alpha_mod/alpha_mod.mod'     = 'return {}'
+                'alpha_mod/info.json'         = '{"version":"3.0.0"}'
+                'alpha_mod/../../escaped.txt' = 'pwned'
+            }
+
+            & $script:Updater -ConfigPath $script:Config -NoApi -Apply -Confirm:$false *>&1 | Out-Null
+            $code = if (Test-Path Variable:LASTEXITCODE) { $LASTEXITCODE } else { 0 }
+            $code | Should -Be 1
+        }
+    }
+
+    Context 'rollback' {
+
+        BeforeEach {
+            & $script:Updater -ConfigPath $script:Config -NoApi -Apply -Confirm:$false *>&1 | Out-Null
+        }
+
+        It 'writes nothing without -Apply' {
+            $before = Get-TreeFingerprint -Path $script:Staging
+
+            $out = & $script:Updater -ConfigPath $script:Config -Rollback *>&1 | Out-String
+
+            $out | Should -Match 'Dry run'
+            Get-TreeFingerprint -Path $script:Staging | Should -Be $before
+        }
+
+        It 'restores a previous version with -Apply' {
+            $sets = @(Get-ChildItem -LiteralPath $script:Backups -Directory | Sort-Object Name -Descending)
+            $sets.Count | Should -BeGreaterThan 0
+
+            & $script:Updater -ConfigPath $script:Config -Rollback -Apply -Confirm:$false *>&1 | Out-Null
+
+            $info = Get-Content -LiteralPath (Join-Path $script:Staging 'alpha_mod\info.json') -Raw -Encoding UTF8 |
+                    ConvertFrom-Json
+            $info.version | Should -Be '1.0.0'
+        }
+    }
+
+    Context 'ignoring tooling folders' {
+
+        It 'does not treat a leftover .staging-* directory as a mod' {
+            $orphan = Join-Path $script:Staging '.staging-orphan'
+            New-Item -ItemType Directory -Path $orphan -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $orphan 'orphan.mod') -Value 'return {}' -Encoding UTF8
+
+            $out = & $script:Updater -ConfigPath $script:Config -NoApi *>&1 | Out-String
+
+            $out | Should -Not -Match '\.staging-orphan'
         }
     }
 

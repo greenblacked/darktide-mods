@@ -221,8 +221,8 @@ nothing at all — see [Re-running is safe](#re-running-is-safe).
 If the game crashes on load, you have two undo paths and neither needs a re-download:
 
 ```powershell
-.\darktide.ps1 restore            # newest game-folder backup (undoes the deploy)
-.\darktide.ps1 rollback           # undoes the last staging install
+.\darktide.ps1 restore -Apply     # newest game-folder backup (undoes the deploy)
+.\darktide.ps1 rollback -Apply    # undoes the last staging install
 .\darktide.ps1 deploy -Apply      # ...then push the rolled-back staging out
 ```
 
@@ -415,7 +415,7 @@ The order matters:
 #    mod_load_order.txt with '--' and restart.
 
 # 5. If one mod is the culprit and has no update yet:
-.\darktide.ps1 rollback -BackupSet '<set>'
+.\darktide.ps1 rollback -Apply -BackupSet '<set>'
 #    then set "pinned": true on it in mods-map.json
 ```
 
@@ -428,19 +428,22 @@ not in the mod folders.
 
 This tooling deletes and replaces directories, so it is deliberately paranoid:
 
-- **Refuses to run while `Darktide.exe` is open.**
+- **Refuses to write while `Darktide.exe` is open.** Dry runs still work with the game
+  running, so you can plan an update mid-mission.
 - **Validates the game path** against `binaries\Darktide.exe`, `bundle\bundle_database.data`
-  and friends before writing. Also refuses drive roots and suspiciously shallow paths.
+  and friends before writing (including `restore`). Also refuses drive roots and
+  suspiciously shallow paths.
 - **Staged installs.** A mod is extracted to `.staging-<name>\` and only swapped in once the
   new copy is on disk. A corrupt archive can never leave you with a deleted mod.
 - **Backs up before every write** — staging installs to `mod_backups\<timestamp>\`, deploys to
-  `deploy_backups\gamemods-<timestamp>.zip`.
+  `deploy_backups\gamemods-<timestamp>.zip`. Retention is capped (default 10) so repeated
+  runs cannot fill the disk.
 - **Archive contents decide the target folder**, taken from the `*.mod` file inside. If that
   doesn't match the mod being updated, the install is refused rather than guessed at.
 - **Zip-slip guarded** — `../`, absolute paths, and backslash traversal are rejected, and every
   resolved path is verified to land inside the mod folder.
 - **Won't downgrade silently.** An older archive sitting in Downloads is skipped, not installed.
-- **`-WhatIf` everywhere.**
+- **Dry run until `-Apply`.** Including `rollback` and `restore`.
 
 ---
 
