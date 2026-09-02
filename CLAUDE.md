@@ -16,9 +16,11 @@ Nothing in this repository credits an AI assistant. That means:
 - **Code comments, documentation and release notes** are written in the
   repository's voice, not signed.
 
-`Test-Modpack.ps1` enforces this with the `no agent attribution committed`
-check, so a footer that slips into a tracked file fails the build. The check
-cannot see commit messages or PR bodies, so those stay a matter of care.
+`Test-Modpack.ps1` enforces this with two checks: `no agent attribution committed`
+(tracked files) and `no agent attribution in commit messages` (trailers). CI
+checks out with `fetch-depth: 0` so the trailer scan sees the whole history.
+Pull request bodies stay a matter of care — nothing in the repository can see
+what GitHub stores.
 
 Naming a model in prose is not attribution. The vendored `sepia` skill
 catalogues model fingerprints by name, and the `.claude/skills/` path is fixed

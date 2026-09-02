@@ -114,7 +114,7 @@ notepad config.json
 | `LoaderSource` | Unzipped Darktide Mod Loader folder or its `.zip`. `init` fills this in if it finds one. |
 | `BackupRoot` | Staging backups. Leave blank for `<parent of ModsRoot>\mod_backups`. |
 | `DeployBackupRoot` | Game-folder backups. Leave blank for `<parent of ModsRoot>\deploy_backups`. |
-| `ApiKey` | Do not set. `init` will not write this field. Use the `NEXUS_API_KEY` environment variable — see [Version checking](#version-checking-optional). |
+| `ApiKey` | Do not set. `init` will not write this field. Use the `NEXUS_API_KEY` environment variable — see [Checking versions locally](#checking-versions-locally-step-by-step). |
 
 `config.json` is gitignored and never leaves your machine. Use `\\` in JSON paths.
 
@@ -340,7 +340,7 @@ Check it with `.\darktide.ps1 status`, then launch the game.
 > get a one-command restore, and it's the only part that has to travel with you.
 >
 > With Nexus Premium you'd still download in the browser here; what an API key buys you is
-> `check` telling you *which* mods are outdated. See [Version checking](#version-checking-optional).
+> `check` telling you *which* mods are outdated. See [Checking versions locally](#checking-versions-locally-step-by-step).
 
 ---
 
@@ -361,48 +361,128 @@ Every verb is idempotent: running it twice does the same thing as running it onc
 
 ---
 
-## Version checking (optional)
+## Checking versions locally, step by step
 
-The tooling works fully without a Nexus API key. What the key adds is one thing: telling you
-that a newer version exists before you go looking.
-
-| | No key | Free account + key | Premium + key |
-|---|---|---|---|
-| Read installed versions | yes | yes | yes |
-| Know an update exists | **you check** | automatic | automatic |
-| Download the archive | **you click** | **you click** | **you click** |
-| Install, backup, load order, deploy | yes | yes | yes |
+Without an API key the tool does not talk to Nexus. It compares zips already sitting in
+`DownloadDir` against the versions recorded in staging. That is enough to decide what to
+install. `check` is the command that queries Nexus, and it is unused here.
 
 Installs always come from your `DownloadDir`. This tooling has no Nexus auto-download path,
 premium or otherwise — free accounts get HTTP 403 on `/download_link.json`, and scraping
 would breach their terms, so the browser click stays yours either way.
 
-To enable checking:
+### 1. Keep the default Nexus filenames
+
+A stock download looks like
+`Markers Improved All-in-one-447-2-14-4-1719209900.zip`. The `447` is the Nexus id and
+`2-14-4` is version `2.14.4`. That is how `update` identifies an archive with no key.
+
+If you renamed the file, the version inside the zip's `info.json` is used instead. If
+neither is present the archive is reported as `VERSION-UNKNOWN` and skipped — it is not
+guessed at.
+
+### 2. Close the game
+
+`update` and `deploy` refuse to run while `Darktide.exe` is open.
+
+### 3. Dry-run first
 
 ```powershell
-# https://www.nexusmods.com/users/myaccount?tab=api  ->  generate a personal key
+.\darktide.ps1 update
+```
+
+Nothing is written. Each archive is matched to a folder and compared to the version in
+that folder's `.nexus-mod.json` (created the first time this tool installed the mod).
+
+```powershell
+.\darktide.ps1 update -Verbose
+.\darktide.ps1 sync
+```
+
+`sync` is the same comparison plus what deploy would copy. Read the plan before `-Apply`.
+
+### 4. Read the statuses
+
+| Status | Meaning |
+|---|---|
+| `NEWER` | The zip is newer than staging. This is the one you apply. |
+| `SAME` | Already installed. Skipped. |
+| `OLDER` | The zip is older than staging. Skipped, so a leftover download cannot downgrade you. |
+| `NO-ARCHIVE` | That folder has no matching zip in `DownloadDir`. Not an error. |
+| `VERSION-UNKNOWN` | Renamed zip and no `info.json`. Skipped. |
+
+A first run often shows `version-tracked: 0` in `status`. Nothing has been installed *by
+this tool* yet, so there is no recorded version to compare. The first `update -Apply`
+starts tracking.
+
+### 5. Apply only what is newer
+
+```powershell
+.\darktide.ps1 update -Apply
+.\darktide.ps1 sync -Apply
+```
+
+`update -Apply` installs into staging. `sync -Apply` does that and then deploys.
+
+One folder only:
+
+```powershell
+.\darktide.ps1 update -Apply -Only dmf
+.\darktide.ps1 update -Apply -Force -Only NumericUI
+```
+
+`-Force` is the deliberate reinstall or downgrade. Without it, older zips stay skipped.
+
+### 6. When you want to look on Nexus yourself
+
+Local check cannot see a version you never downloaded. Use the lockfile as a list of
+pages, not as live Nexus data:
+
+```powershell
+.\darktide.ps1 status
+Get-Content .\darktide-modpack.lock.json
+```
+
+Each entry has the version this tool last installed and a `url` to the author's page.
+Open the page, download if Nexus shows newer, leave the filename alone, run `update`
+again.
+
+After a game patch the same local path applies: get the new loader and DMF zips first,
+then:
+
+```powershell
+.\darktide.ps1 loader -Apply -Force
+.\darktide.ps1 update -Apply -Only dmf
+.\darktide.ps1 sync -Apply
+```
+
+### Optional: ask Nexus from the command line
+
+A key only adds `check` — “Nexus has a file you do not have yet.” A free account still
+cannot fetch the file through the API (`/download_link.json` returns 403). You click
+either way.
+
+Do not put a key in `config.json` (`init` will not write one). If you do generate a key, put it in the
+environment:
+
+```powershell
+# https://www.nexusmods.com/users/myaccount?tab=api
 [Environment]::SetEnvironmentVariable('NEXUS_API_KEY', '<your-key>', 'User')
-# open a new PowerShell window, then:
+# new PowerShell window, then:
 .\darktide.ps1 check
 ```
 
-Without a key, `update` runs in offline mode automatically. It reads the version out of each
-archive — from the `info.json` inside the zip, or from the stock Nexus filename
-(`Markers Improved All-in-one-447-2-14-4-1719209900.zip` → mod 447, version 2.14.4) — and
-installs only what's genuinely newer.
-
-### Mapping mods to Nexus IDs
-
-`mods-map.json` maps folder names to Nexus mod IDs. Mods that ship an `info.json` are mapped
-automatically; the rest need an ID before they can be version-checked.
+`mods-map.json` maps folder names to Nexus ids. Mods that ship `info.json` are mapped
+on install; the rest need the number from the mod URL pasted in. Set `"pinned": true`
+on anything `update` should leave alone.
 
 ```powershell
-.\Update-DarktideMods.ps1 -BuildCatalog   # crawls the Nexus mod list; resumable
-.\Update-DarktideMods.ps1 -Resolve        # matches by name, writes mods-map.json
+.\Update-DarktideMods.ps1 -BuildCatalog   # needs a key; crawls the Nexus list
+.\Update-DarktideMods.ps1 -Resolve
 ```
 
-Or just paste the number from the mod's URL into `mods-map.json`. Set `"pinned": true` on
-anything you want left alone.
+`-BuildCatalog` and `-Resolve` are unused on a no-key setup. Paste ids by hand if a
+folder is unmapped.
 
 ---
 
