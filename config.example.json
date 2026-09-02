@@ -1,5 +1,5 @@
 {
-  "_comment": "Copy this to config.json and edit the paths. config.json is gitignored - never commit it, and never put your API key in it (use the NEXUS_API_KEY environment variable instead).",
+  "_comment": "Copy this to config.json and edit the paths. config.json is gitignored - never commit it. Do not put an API key here; use the NEXUS_API_KEY environment variable. init will not write an ApiKey field.",
 
   "ModsRoot":         "D:\\Darktide\\mods",
   "GamePath":         "D:\\Games\\Steam\\steamapps\\common\\Warhammer 40,000 DARKTIDE",
@@ -7,6 +7,5 @@
   "DownloadDir":      "C:\\Users\\YOURNAME\\Downloads",
   "BackupRoot":       "D:\\Darktide\\mod_backups",
   "DeployBackupRoot": "D:\\Darktide\\deploy_backups",
-  "GameDomain":       "warhammer40kdarktide",
-  "ApiKey":           ""
+  "GameDomain":       "warhammer40kdarktide"
 }
