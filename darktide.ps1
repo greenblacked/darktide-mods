@@ -9,9 +9,9 @@
         .\darktide.ps1 check      what is outdated on Nexus (needs an API key)
         .\darktide.ps1 update     install downloaded archives into staging
         .\darktide.ps1 deploy     push staging into the game folder
-        .\darktide.ps1 sync       update + deploy, the everyday one
-        .\darktide.ps1 rollback   undo the last staging install
-        .\darktide.ps1 restore    undo the last deploy to the game folder
+        .\darktide.ps1 sync       update + deploy; stops if either step fails
+        .\darktide.ps1 rollback   undo the last staging install (needs -Apply)
+        .\darktide.ps1 restore    undo the last deploy to the game folder (needs -Apply)
         .\darktide.ps1 lock       regenerate darktide-modpack.lock.json
         .\darktide.ps1 init       find the game automatically and write config.json
         .\darktide.ps1 loader     install or update the Darktide Mod Loader
@@ -19,7 +19,7 @@
         .\darktide.ps1 import     restore a loadout zip and deploy it
 
     Everything is a dry run until you add -Apply, except 'status' and 'check'
-    which never write anything.
+    which never write anything. That includes rollback and restore.
 
 .PARAMETER Verb
     Which action to run. See above.
@@ -38,6 +38,14 @@
 .EXAMPLE
     .\darktide.ps1 deploy -Apply -Mirror
     Deploy and remove mods from the game folder that are no longer in staging.
+
+.EXAMPLE
+    .\darktide.ps1 rollback
+    Lists the backup set that would be restored. Add -Apply to write.
+
+.EXAMPLE
+    .\darktide.ps1 restore -Apply
+    Restores the newest deploy backup into the game mods folder.
 #>
 
 [CmdletBinding()]

@@ -24,7 +24,8 @@
     'dtkit-patch --patch', never the toggle script: the toggle flips state, so running
     it twice silently disables every mod.
 
-    Nothing is written without -Apply.
+    Nothing is written without -Apply. Dry runs work with the game open; -Apply
+    refuses to write while Darktide.exe is running.
 
 .PARAMETER Source
     The unzipped loader folder, or the .zip you downloaded. Defaults to LoaderSource

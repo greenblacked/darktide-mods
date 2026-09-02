@@ -71,7 +71,11 @@
 
 .EXAMPLE
     .\Update-DarktideMods.ps1 -Rollback
-    Restore every mod folder from the most recent backup set.
+    Lists the newest backup set. Add -Apply to restore it into staging.
+
+.EXAMPLE
+    .\Update-DarktideMods.ps1 -Rollback -Apply
+    Restores every mod folder from the most recent backup set.
 
 .NOTES
     Requires Windows PowerShell 5.1 or PowerShell 7+. No external modules.
