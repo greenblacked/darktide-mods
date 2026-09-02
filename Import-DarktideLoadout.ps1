@@ -85,14 +85,14 @@ function Expand-LoadoutArchive {
 
             if ($rel.EndsWith('/')) {
                 if (-not (Test-Path -LiteralPath $target)) {
-                    New-Item -ItemType Directory -Path $target -Force | Out-Null
+                    New-Item -ItemType Directory -LiteralPath $target -Force | Out-Null
                 }
                 continue
             }
 
             $parent = Split-Path -Parent $target
             if ($parent -and -not (Test-Path -LiteralPath $parent)) {
-                New-Item -ItemType Directory -Path $parent -Force | Out-Null
+                New-Item -ItemType Directory -LiteralPath $parent -Force | Out-Null
             }
             [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $target, $true)
         }

@@ -329,5 +329,38 @@ Describe 'Install-DarktideLoader' {
             @(Get-ChildItem -LiteralPath ([System.IO.Path]::GetTempPath()) -Directory -Filter 'dt-loader-*' `
               -ErrorAction SilentlyContinue) | Should -BeNullOrEmpty
         }
+
+        It 'rejects a traversal archive without writing loader files' {
+            $zip = Join-Path $script:Root 'Darktide Mod Loader-19-26-06-24-1719209900.zip'
+            $null = New-TestZip -Path $zip -Entries @{
+                'toggle_darktide_mods.bat' = '@echo off'
+                '../escaped.txt'           = 'pwned'
+            }
+
+            { & $script:Loaderer -ConfigPath $script:Config -Source $zip `
+                                 -PatcherPath $script:Patcher -Apply -Confirm:$false } |
+                Should -Throw -ExpectedMessage '*unsafe path*'
+
+            Test-Path (Join-Path $script:Game 'toggle_darktide_mods.bat') | Should -BeFalse
+            Test-Path (Join-Path $script:Root 'escaped.txt') | Should -BeFalse
+        }
+    }
+
+    Context 'backup retention' {
+
+        It 'keeps only the newest -KeepBackups loader folders' {
+            & $script:Loaderer -ConfigPath $script:Config -Source $script:Payload `
+                               -PatcherPath $script:Patcher -Apply -Confirm:$false *>&1 | Out-Null
+
+            1..4 | ForEach-Object {
+                & $script:Loaderer -ConfigPath $script:Config -Source $script:Payload `
+                                   -PatcherPath $script:Patcher -Apply -Force -KeepBackups 2 `
+                                   -Confirm:$false *>&1 | Out-Null
+            }
+
+            $backups = @(Get-ChildItem -LiteralPath (Join-Path $script:Root 'loader_backups') `
+                         -Directory -ErrorAction SilentlyContinue)
+            $backups.Count | Should -BeLessOrEqual 2
+        }
     }
 }

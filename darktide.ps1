@@ -19,7 +19,7 @@
         .\darktide.ps1 import     restore a loadout zip and deploy it
 
     Everything is a dry run until you add -Apply, except 'status' and 'check'
-    which never write anything.
+    which never write anything, and 'lock' which always writes the manifest.
 
 .PARAMETER Verb
     Which action to run. See above.
@@ -239,51 +239,17 @@ switch ($Verb) {
     }
 
     'rollback' {
-        Write-Head 'Rolling back the staging folder'
-        & $Updater -ConfigPath $ConfigPath -Rollback -BackupSet $BackupSet
-        Write-Warn 'Staging restored. Run: .\darktide.ps1 deploy -Apply   to push it to the game.'
+        Write-Head "Rolling back the staging folder$(if (-not $Apply) { ' (dry run)' })"
+        & $Updater -ConfigPath $ConfigPath -Rollback -Apply:$Apply -BackupSet $BackupSet
+        if ($Apply) {
+            Write-Warn 'Staging restored. Run: .\darktide.ps1 deploy -Apply   to push it to the game.'
+        }
         return
     }
 
     'restore' {
-        Write-Head 'Restoring the game mods folder from a deploy backup'
-        if (-not $deployBk -or -not (Test-Path -LiteralPath $deployBk)) {
-            throw "No deploy backups at '$deployBk'."
-        }
-        # Newest first by write time, not by name: a same-second collision gets a
-        # '-1' suffix that would sort before the un-suffixed name.
-        $zips = @(Get-ChildItem -LiteralPath $deployBk -File |
-                  Where-Object { $_.Extension -eq '.zip' } | Sort-Object LastWriteTime -Descending)
-        if (-not $zips) { throw "No deploy backups found in '$deployBk'." }
-
-        $zip = if ($BackupSet) {
-            $hit = @($zips | Where-Object { $_.Name -like "*$BackupSet*" })
-            if (-not $hit) { throw "No deploy backup matching '$BackupSet'." }
-            $hit[0]
-        } else { $zips[0] }
-
-        $gm = Join-Path $gamePath 'mods'
-        Write-Host "  backup : $($zip.Name)"
-        Write-Host "  target : $gm"
-
-        if (-not $Apply) {
-            Write-Warn '  dry run - re-run with -Apply to restore.'
-            Write-Host ''
-            Write-Host '  available backups:'
-            $zips | Select-Object -First 10 | ForEach-Object { Write-Host "    $($_.Name)" }
-            return
-        }
-
-        $p = Get-Process -Name 'Darktide' -ErrorAction SilentlyContinue
-        if ($p) { throw "Darktide.exe is running. Close the game first." }
-
-        Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
-        $stage = "$gm.restoring"
-        if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
-        [System.IO.Compression.ZipFile]::ExtractToDirectory($zip.FullName, $stage)
-        if (Test-Path -LiteralPath $gm) { Remove-Item -LiteralPath $gm -Recurse -Force }
-        Move-Item -LiteralPath $stage -Destination $gm -Force
-        Write-Ok "  restored from $($zip.Name)"
+        Write-Head "Restoring the game mods folder from a deploy backup$(if (-not $Apply) { ' (dry run)' })"
+        & $Deployer -ConfigPath $ConfigPath -Restore -Apply:$Apply -BackupSet $BackupSet -Force:$Force
         return
     }
 

@@ -6,15 +6,12 @@
 .DESCRIPTION
     Default mode is a read-only check. Nothing is written to the mods tree unless -Apply
     is passed. Every install is preceded by a zip backup of the existing mod folder, and
-    -Rollback restores from those backups.
+    -Rollback -Apply restores from those backups.
 
     Designed for a NON-PREMIUM Nexus account. The Nexus API refuses to hand direct
     download links to free accounts (HTTP 403 on /download_link.json), so this script:
       1. uses the API for version metadata only (allowed for free accounts), then
       2. installs from archives you downloaded yourself into -DownloadDir.
-    If the account IS premium the script detects that via /users/validate.json and
-    downloads automatically without touching -DownloadDir.
-
 .PARAMETER Apply
     Actually install updates. Without it the script only reports.
 
@@ -30,7 +27,12 @@
     is installed, or when its version cannot be determined. Use for repairs and downgrades.
 
 .PARAMETER Rollback
-    Restore mod folders from a backup set instead of updating.
+    Restore mod folders from a backup set instead of updating. Writes nothing
+    without -Apply; the dry run lists the set.
+
+.PARAMETER KeepBackups
+    How many timestamped backup-set folders to keep under BackupRoot. Default 10.
+    0 keeps all.
 
 .PARAMETER Resolve
     Try to map local folder names to Nexus mod IDs and write them to mods-map.json.
@@ -65,6 +67,10 @@
 
 .EXAMPLE
     .\Update-DarktideMods.ps1 -Rollback
+    List the newest backup set. Nothing is written.
+
+.EXAMPLE
+    .\Update-DarktideMods.ps1 -Rollback -Apply
     Restore every mod folder from the most recent backup set.
 
 .NOTES
@@ -92,7 +98,10 @@ param(
     [switch]   $BuildCatalog,
     [switch]   $OpenPages,
     [switch]   $NoLoadOrderUpdate,
-    [int]      $CatalogMaxRequests = 400
+    [int]      $CatalogMaxRequests = 400,
+
+    [ValidateRange(0, 1000)]
+    [int]      $KeepBackups = 10
 )
 
 Set-StrictMode -Version Latest
@@ -757,11 +766,11 @@ function Expand-ModArchive {
             }
 
             if ($rel.EndsWith('/')) {
-                if (-not (Test-Path -LiteralPath $target)) { New-Item -ItemType Directory -Path $target -Force | Out-Null }
+                if (-not (Test-Path -LiteralPath $target)) { New-Item -ItemType Directory -LiteralPath $target -Force | Out-Null }
                 continue
             }
             $parent = Split-Path -Parent $target
-            if ($parent -and -not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
+            if ($parent -and -not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -LiteralPath $parent -Force | Out-Null }
             [System.IO.Compression.ZipFileExtensions]::ExtractToFile($e, $target, $true)
         }
     } finally {
@@ -858,7 +867,7 @@ function Install-ModArchive {
         # Extract to a staging folder FIRST. Nothing is destroyed until we know the
         # new copy is on disk, so a bad archive can never leave you with no mod.
         if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
-        New-Item -ItemType Directory -Path $stage -Force | Out-Null
+        New-Item -ItemType Directory -LiteralPath $stage -Force | Out-Null
         try {
             Expand-ModArchive -ZipPath $ZipPath -Destination $stage -Prefix $layout.Prefix
         } catch {
@@ -879,8 +888,8 @@ function Install-ModArchive {
             Write-Log "Swap failed for $($layout.ModName): $($_.Exception.Message)" 'ERROR'
             if ($backup -and -not (Test-Path -LiteralPath $target)) {
                 Write-Log "Restoring $($layout.ModName) from backup." 'WARN'
-                New-Item -ItemType Directory -Path $target -Force | Out-Null
-                [System.IO.Compression.ZipFile]::ExtractToDirectory($backup, $target)
+                New-Item -ItemType Directory -LiteralPath $target -Force | Out-Null
+                Expand-ModArchive -ZipPath $backup -Destination $target -Prefix ''
             }
             Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
             throw
@@ -1140,7 +1149,13 @@ function Invoke-Rollback {
             # Stage first, exactly as on install, so a failed extract cannot destroy the mod.
             $stage = Join-Path $ModsRoot ".staging-$name"
             if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
-            [System.IO.Compression.ZipFile]::ExtractToDirectory($z.FullName, $stage)
+            try {
+                New-Item -ItemType Directory -LiteralPath $stage -Force | Out-Null
+                Expand-ModArchive -ZipPath $z.FullName -Destination $stage -Prefix ''
+            } catch {
+                Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
+                throw
+            }
             if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
             Move-Item -LiteralPath $stage -Destination $target -Force
             Write-Log "Restored $name" 'OK'
@@ -1148,6 +1163,18 @@ function Invoke-Rollback {
         }
     }
     Write-Log "Rollback complete. $restored mod(s) restored." 'OK'
+}
+
+function Remove-StaleBackupSets {
+    param([string] $Root, [int] $Keep)
+    if ($Keep -le 0) { return }
+    if (-not (Test-Path -LiteralPath $Root)) { return }
+    $stale = @(Get-ChildItem -LiteralPath $Root -Directory |
+               Sort-Object LastWriteTime -Descending | Select-Object -Skip $Keep)
+    foreach ($old in $stale) {
+        Remove-Item -LiteralPath $old.FullName -Recurse -Force
+        Write-Log "Pruned old backup set: $($old.Name)"
+    }
 }
 
 # ----------------------------------------------------------------------------------
@@ -1165,8 +1192,30 @@ Write-Log "Log file  : $script:LogFile"
 Test-ModsRoot -Path $cfg.ModsRoot
 
 if ($Rollback) {
+    if (-not (Test-Path -LiteralPath $cfg.BackupRoot)) { throw "No backup root at '$($cfg.BackupRoot)'." }
+    if ($BackupSet -and [System.IO.Path]::GetFileName($BackupSet) -ne $BackupSet) {
+        throw "-BackupSet must be a single folder name (e.g. '20260829-181500'), not a path."
+    }
+    $set = if ($BackupSet) {
+        Get-Item -LiteralPath (Join-Path $cfg.BackupRoot $BackupSet) -ErrorAction Stop
+    } else {
+        Get-ChildItem -LiteralPath $cfg.BackupRoot -Directory | Sort-Object Name -Descending | Select-Object -First 1
+    }
+    if (-not $set) { throw "No backup sets found under '$($cfg.BackupRoot)'." }
+
+    $zips = @(Get-ChildItem -LiteralPath $set.FullName -File |
+              Where-Object { $_.Extension -eq '.zip' })
+    if (-not $zips) { throw "Backup set '$($set.Name)' is empty." }
+    Write-Log "Backup set '$($set.Name)' ($($zips.Count) archive(s))" 'STEP'
+    foreach ($z in $zips) { Write-Host "  $($z.Name)" }
+
+    if (-not $Apply) {
+        Write-Log 'Dry run. Re-run with -Rollback -Apply to restore.' 'WARN'
+        return
+    }
+
     Assert-GameNotRunning
-    Invoke-Rollback -BackupRoot $cfg.BackupRoot -ModsRoot $cfg.ModsRoot -SetName $BackupSet
+    Invoke-Rollback -BackupRoot $cfg.BackupRoot -ModsRoot $cfg.ModsRoot -SetName $set.Name
     return
 }
 
@@ -1217,7 +1266,10 @@ if ($NoApi -or -not $cfg.ApiKey) {
     Write-Log "Report: $csv"
     if ($script:Stats.Updated -gt 0) {
         Write-Log "Backups for this run: $backupSetDir" 'OK'
-        Write-Log "Undo with: .\Update-DarktideMods.ps1 -Rollback -BackupSet '$(Split-Path -Leaf $backupSetDir)'" 'OK'
+        Write-Log "Undo with: .\Update-DarktideMods.ps1 -Rollback -Apply -BackupSet '$(Split-Path -Leaf $backupSetDir)'" 'OK'
+        if ((Test-Path -LiteralPath $backupSetDir)) {
+            Remove-StaleBackupSets -Root $cfg.BackupRoot -Keep $KeepBackups
+        }
     }
     if (-not $Apply -and $script:Stats.Outdated -gt 0) {
         Write-Log "Read-only run. Re-run with -NoApi -Apply to install." 'WARN'
@@ -1420,7 +1472,10 @@ if ($null -ne $script:RateLimit.DailyRemaining) {
 }
 if ($script:Stats.Updated -gt 0) {
     Write-Log "Backups for this run: $backupSetDir" 'OK'
-    Write-Log "Undo with: .\Update-DarktideMods.ps1 -Rollback -BackupSet '$(Split-Path -Leaf $backupSetDir)'" 'OK'
+    Write-Log "Undo with: .\Update-DarktideMods.ps1 -Rollback -Apply -BackupSet '$(Split-Path -Leaf $backupSetDir)'" 'OK'
+    if ((Test-Path -LiteralPath $backupSetDir)) {
+        Remove-StaleBackupSets -Root $cfg.BackupRoot -Keep $KeepBackups
+    }
 }
 if (-not $Apply -and $script:Stats.Outdated -gt 0) {
     Write-Log "Read-only run. Download the archives, then re-run with -Apply to install." 'WARN'

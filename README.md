@@ -1,7 +1,7 @@
 # darktide-mods
 
 [![CI](https://github.com/greenblacked/darktide-mods/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/greenblacked/darktide-mods/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-153%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-168%20passing-brightgreen)](tests/)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%20%7C%207-5391FE)](https://learn.microsoft.com/powershell/)
 [![License: MIT](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
@@ -153,12 +153,12 @@ nothing has changed does nothing at all. See [The mod loader](#the-mod-loader).
   api key      : not set (offline mode)
 
 == Staging
-  mod folders        : 46
+  mod folders        : 45
   version-tracked    : 0
   with author info   : 6
 
 == Game folder
-  deployed mods : 46
+  deployed mods : 45
   staging and game are in sync
   mod loader present
 ```
@@ -213,7 +213,8 @@ In order, this:
 5. re-checks that every load-order entry resolves to a real folder;
 6. refreshes `darktide-modpack.lock.json`.
 
-Everything is a dry run until `-Apply`. Running it again when nothing has changed does
+Everything is a dry run until `-Apply`, except `lock`, which always rewrites the
+manifest. `status` and `check` never write. Running it again when nothing has changed does
 nothing at all — see [Re-running is safe](#re-running-is-safe).
 
 ### 5. Start the game and confirm
@@ -221,8 +222,8 @@ nothing at all — see [Re-running is safe](#re-running-is-safe).
 If the game crashes on load, you have two undo paths and neither needs a re-download:
 
 ```powershell
-.\darktide.ps1 restore            # newest game-folder backup (undoes the deploy)
-.\darktide.ps1 rollback           # undoes the last staging install
+.\darktide.ps1 restore -Apply     # newest game-folder backup (undoes the deploy)
+.\darktide.ps1 rollback -Apply    # undoes the last staging install
 .\darktide.ps1 deploy -Apply      # ...then push the rolled-back staging out
 ```
 
@@ -326,7 +327,7 @@ Check it with `.\darktide.ps1 status`, then launch the game.
 > **Why an archive, and not "download all the mods automatically"?**
 > A Nexus **free** account cannot get download links from the API — `download_link.json`
 > returns HTTP 403, premium only — and scraping the site would breach their terms. So no tool
-> can legitimately fetch 46 mods for you on a free account, and this repo can't ship the mod
+> can legitimately fetch 45 mods for you on a free account, and this repo can't ship the mod
 > files either: they're their authors' work to distribute. Your own export zip is the way to
 > get a one-command restore, and it's the only part that has to travel with you.
 >
@@ -348,7 +349,8 @@ Every verb is idempotent: running it twice does the same thing as running it onc
 - `loader` compares the version you have against `<game>\.darktide-loader.json` and stops if
   they match — it doesn't even touch the bundle database, so it can't toggle your mods off.
 - Deploy backups are pruned to the newest `-KeepBackups` archives (default 10), so repeated
-  deploys cannot fill the disk.
+  deploys cannot fill the disk. Staging backup-set folders and `loader_backups\loader-*`
+  are bounded the same way.
 
 ---
 
@@ -491,7 +493,7 @@ The order matters:
 #    mod_load_order.txt with '--' and restart.
 
 # 5. If one mod is the culprit and has no update yet:
-.\darktide.ps1 rollback -BackupSet '<set>'
+.\darktide.ps1 rollback -Apply -BackupSet '<set>'
 #    then set "pinned": true on it in mods-map.json
 ```
 
@@ -504,9 +506,10 @@ not in the mod folders.
 
 This tooling deletes and replaces directories, so it is deliberately paranoid:
 
-- **Refuses to run while `Darktide.exe` is open.**
+- **Refuses to write while `Darktide.exe` is open.** Dry runs skip that check.
 - **Validates the game path** against `binaries\Darktide.exe`, `bundle\bundle_database.data`
   and friends before writing. Also refuses drive roots and suspiciously shallow paths.
+  `restore` goes through the same check; it lives on `Deploy-DarktideMods.ps1 -Restore`.
 - **Staged installs.** A mod is extracted to `.staging-<name>\` and only swapped in once the
   new copy is on disk. A corrupt archive can never leave you with a deleted mod.
 - **Backs up before every write** — staging installs to `mod_backups\<timestamp>\`, deploys to
@@ -514,7 +517,7 @@ This tooling deletes and replaces directories, so it is deliberately paranoid:
 - **Archive contents decide the target folder**, taken from the `*.mod` file inside. If that
   doesn't match the mod being updated, the install is refused rather than guessed at.
 - **Zip-slip guarded** — `../`, absolute paths, and backslash traversal are rejected, and every
-  resolved path is verified to land inside the mod folder.
+  resolved path is verified to land inside the destination.
 - **Won't downgrade silently.** An older archive sitting in Downloads is skipped, not installed.
 - **`-WhatIf` everywhere.**
 
@@ -568,6 +571,16 @@ and the Steam registry keys, and build `\`-separated paths, and the tests assert
 that. On Linux or macOS `Invoke-Tests.ps1` says so and runs the cross-platform repository
 validator instead; `-AllowNonWindows` forces the Pester run if you want to see it fail.
 
+The local Linux command that matches the ubuntu CI job is:
+
+```bash
+./run-tests-docker.sh
+```
+
+That runs `Test-Modpack.ps1`, asserts `Invoke-Tests.ps1` exits `3` twice, then runs the
+Lock slice (exit `0`). It is not a Windows Pester pass. `./run-tests-docker.sh full`
+will show ~70 environmental failures; that is expected, not a bug.
+
 `Invoke-Tests.ps1` exit codes, so a script can tell a passing suite from a skipped one:
 
 | Code | Meaning |
@@ -584,14 +597,15 @@ What it covers:
 
 | Area | Checks |
 |---|---|
-| `tests/Deploy.Tests.ps1` | Dry run writes nothing; first deploy copies; **second deploy is a byte-identical no-op**; `-Force`; `-Mirror`; backup retention; refusal to write to a non-Darktide folder, a drive root or an empty staging set; load-order post-checks. |
-| `tests/OfflineUpdate.Tests.ps1` | Upgrade installs and is recorded; **re-running installs nothing**; new mods land with a load-order entry that is not duplicated; downgrades refused without `-Force`; traversal and malformed archives rejected without destroying the installed mod. |
-| `tests/Update.Tests.ps1` | Nexus filename parsing, version comparison, mod-name resolution from the `.mod` file, unsafe-name refusal, and zip-slip guards (`../`, `..\`, absolute paths). |
+| `tests/Deploy.Tests.ps1` | Dry run writes nothing; first deploy copies; **second deploy is a byte-identical no-op**; `-Force`; `-Mirror`; backup retention; `-Restore` dry-run and apply; traversal backups refused without deleting `mods\`; refusal to write to a non-Darktide folder, a drive root or an empty staging set; load-order post-checks. |
+| `tests/OfflineUpdate.Tests.ps1` | Upgrade installs and is recorded; **re-running installs nothing**; new mods land with a load-order entry that is not duplicated; downgrades refused without `-Force`; traversal and malformed archives rejected without destroying the installed mod; rollback dry-run vs `-Apply`; hostile backup zips refused; extra backup-set dirs pruned. |
+| `tests/Update.Tests.ps1` | Nexus filename parsing, version comparison, mod-name resolution from the `.mod` file, unsafe-name refusal, zip-slip guards (`../`, `..\`, absolute paths), and extract into a folder whose name contains `[]`. |
 | `tests/Lock.Tests.ps1` | Lockfile shape, ID mapping, no mod content, stable regeneration, content hashes that move only when a mod changes. |
 | `tests/Setup.Tests.ps1` | Game detection: real game files vs a folder that only has the right name, multi-drive Steam libraries parsed from `libraryfolders.vdf`, and a generated config the other tools can consume. |
-| `tests/Loader.Tests.ps1` | Loader version parsing, payload validation, install/update, base into staging, your load order preserved, backups, and — against a stub patcher — that it uses `--patch`/`--unpatch` in the right order and never the toggle. |
+| `tests/Loader.Tests.ps1` | Loader version parsing, payload validation, install/update, base into staging, your load order preserved, backups, backup retention, hostile loader zips refused, and — against a stub patcher — that it uses `--patch`/`--unpatch` in the right order and never the toggle. |
 | `tests/Export.Tests.ps1` | The loadout archive: every mod included, forward-slash entry names so it opens on any tool, no overwrite without `-Force`, never written inside the folder it's archiving. |
 | `tests/Import.Tests.ps1` | Export → import round trip onto an empty machine, replacing an existing install without merging stale files, traversal archives refused, and restore-plus-deploy in one run. |
+| `tests/Dispatcher.Tests.ps1` | `rollback` / `restore` without `-Apply` write nothing; with `-Apply` they reach the updater and deployer; `sync` does not deploy when update fails. |
 
 ---
 
@@ -603,7 +617,7 @@ The two jobs that publish something stay manual — they are gated on the event 
 
 | Task | Trigger | Runs on | Does |
 |---|---|---|---|
-| `validate` | push, PR, manual | windows-latest | The 153-test Pester suite, then PSScriptAnalyzer, AST parse of every script, JSON validity, lockfile consistency, and hygiene checks (no committed mod files, no leaked API key, `config.json` untracked). |
+| `validate` | push, PR, manual | windows-latest | The 168-test Pester suite, then PSScriptAnalyzer, AST parse of every script, JSON validity, lockfile consistency, and hygiene checks (no committed mod files, no leaked API key, `config.json` untracked). |
 | `cross-platform` | push, PR | ubuntu-latest | The validator on Linux, the `Invoke-Tests.ps1` exit-code contract, and shellcheck on the setup script — the checks a Windows-only job cannot see. |
 | `release` | manual only | windows-latest | Validate, package the allow-listed files, publish a GitHub Release with a SHA-256 and a generated mod table. |
 | `refresh-lock` | manual only | ubuntu-latest | Query the Nexus API for each mapped mod's current version and open a PR with the diff. Metadata only — needs the `NEXUS_API_KEY` secret; a free account is enough. |
@@ -634,7 +648,7 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser
 |---|---|
 | `darktide.ps1` | Entry point. All the verbs above. |
 | `Update-DarktideMods.ps1` | Version checking and installing into staging. |
-| `Deploy-DarktideMods.ps1` | Staging → game folder sync, with validation and backup. |
+| `Deploy-DarktideMods.ps1` | Staging → game folder sync, with validation and backup. `-Restore` unpacks a deploy backup. |
 | `New-ModpackLock.ps1` | Generates the lockfile from an installed mods folder. |
 | `Initialize-DarktideConfig.ps1` | Finds the game via Steam and writes `config.json`. |
 | `Install-DarktideLoader.ps1` | Installs/updates the mod loader, manages the bundle patch. |
@@ -663,7 +677,7 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser
 | Archive shows as `NO-ARCHIVE` | That mod has no matching zip in `DownloadDir` — nothing is wrong, there's just nothing to install for it. |
 | `Skipping '<file>': no *.mod file inside` | Not a DMF mod archive (a texture pack, a readme bundle, or a nested zip). Ignored on purpose. |
 | Deploy says `Already in sync` when you expected work | Staging really does match the game folder. If you edited the game folder directly, that edit is what `-Mirror` or `-Force` is for. |
-| Game crashes on load after an update | `.\darktide.ps1 restore`, then bisect: comment out half of `mod_load_order.txt` with `--` and restart. See [After a Darktide patch](#after-a-darktide-patch). |
+| Game crashes on load after an update | `.\darktide.ps1 restore -Apply`, then bisect: comment out half of `mod_load_order.txt` with `--` and restart. See [After a Darktide patch](#after-a-darktide-patch). |
 | Mods silently stop loading after a game update | Steam replaced the patched bundle. `.\darktide.ps1 deploy -Apply -InstallLoader -RunToggle`. |
 | `HTTP 403 ... premium users only` | Expected on a free Nexus account. Version *checking* works on free; downloading through the API does not. Download in the browser. |
 | `HTTP 429` / rate limited | Nexus allows 100 requests/hour, 2500/day. Wait it out, or use `-NoApi`. |

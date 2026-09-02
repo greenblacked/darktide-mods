@@ -36,7 +36,8 @@ loose on `C:\`. Any new code path that writes into the game folder goes through 
 
 **`Assert-GameNotRunning`** refuses to mutate while `Darktide.exe` holds file locks. It
 is gated on `-Apply` in both scripts: a dry run writes nothing, so it has no business
-demanding the game be closed.
+demanding the game be closed. `rollback` is the same: without `-Apply` it lists the
+backup set and returns.
 
 It exists twice, in `Deploy-DarktideMods.ps1` and `Update-DarktideMods.ps1`, and the two
 bodies are deliberately byte-identical apart from a comment naming the other file. They
@@ -44,7 +45,9 @@ had drifted once. Keeping them duplicated rather than extracting a shared file i
 choice: each tool is a standalone script a user can run on its own, and the release ships
 them from an explicit allow-list, so a shared dependency would be one more thing to keep
 in that list and one more way a copied-out script breaks. If you change one, change the
-other, and do not add a third.
+other, and do not add a third. `Test-Modpack.ps1` asserts the two bodies stay equal and
+that no third copy appears. Game-folder restore lives on `Deploy-DarktideMods.ps1
+-Restore` so it uses the Deploy twin, not a third check in `darktide.ps1`.
 
 ## Destructive operations are opt-in
 
@@ -61,9 +64,11 @@ block — which also means `-WhatIf` keeps working for free.
 ## Back up before replacing, and bound the backups
 
 Mod folders are zipped to a backup root before being replaced (`New-ModBackup`,
-`Update-DarktideMods.ps1:812`; the deploy-side equivalent around
-`Deploy-DarktideMods.ps1:284`). Retention is bounded by `-KeepBackups` (default 10) so
-repeated deploys cannot silently fill a disk.
+`Update-DarktideMods.ps1`; the deploy-side equivalent around the `gamemods-*.zip`
+write in `Deploy-DarktideMods.ps1`). Retention is bounded by `-KeepBackups` (default 10)
+so repeated deploys cannot silently fill a disk. The same switch prunes staging
+timestamp directories under `BackupRoot` and `loader_backups/loader-*` folders. `0`
+means keep all.
 
 If you add a new operation that replaces user data, it needs the same two halves: a
 backup, and a bound on how many backups accumulate.
@@ -81,7 +86,9 @@ of its steps is load-bearing:
 
 Step 3 is not redundant with step 2. It is what catches whatever the pattern missed.
 The suite covers all three (`tests/Update.Tests.ps1`), including the case where a hostile
-archive must be rejected *without* destroying the mod it was meant to replace.
+archive must be rejected *without* destroying the mod it was meant to replace. The same
+loop is copied — not extracted to a module — into `Expand-LoadoutArchive`,
+`Expand-BackupArchive` (Deploy `-Restore`), and `Expand-LoaderArchive`.
 
 ## Offline is the operating mode
 
@@ -146,7 +153,8 @@ it afterwards and verify it is gone rather than assuming.
 `Test-Modpack.ps1` enforces the file-content half with `no agent attribution
 committed`, and the trailer half with `no agent attribution in commit messages`.
 CI checks out with `fetch-depth: 0` so the trailer scan sees the whole history.
-Pull request bodies stay a matter of care. Naming a model in prose is not
+Pull request bodies stay a matter of care: sweep them with `publish-check` after
+anything is published. Naming a model in prose is not
 attribution; the vendored `sepia` skill catalogues model fingerprints by name, and
 the `.claude/skills/` path is fixed by the tooling.
 
@@ -177,7 +185,7 @@ Every script opens with `Set-StrictMode -Version Latest` and
 |---|---|
 | `darktide.ps1` | Verb dispatcher (`init`, `status`, `check`, `update`, `deploy`, `sync`, `rollback`, `restore`, `lock`, `export`, `loader`, `import`) |
 | `Update-DarktideMods.ps1` | Nexus client, version compare, archive install, rollback. 1,425 lines — the one file that has outgrown its shape |
-| `Deploy-DarktideMods.ps1` | Staging → game folder mirror, backups, loader patching |
+| `Deploy-DarktideMods.ps1` | Staging → game folder mirror, backups, loader patching, `-Restore` |
 | `Install-DarktideLoader.ps1` | Darktide Mod Loader install/update, `--patch`/`--unpatch` |
 | `Export-/Import-DarktideLoadout.ps1` | Portable loadout archive |
 | `New-ModpackLock.ps1` | Generates the lockfile manifest |

@@ -254,4 +254,64 @@ Describe 'Offline update' {
             Get-TreeFingerprint -Path $script:Staging | Should -Be $before
         }
     }
+
+    Context 'rollback' {
+
+        BeforeEach {
+            & $script:Updater -ConfigPath $script:Config -NoApi -Apply -Confirm:$false *>&1 | Out-Null
+        }
+
+        It 'lists the backup set without writing when -Apply is omitted' {
+            $before = Get-TreeFingerprint -Path $script:Staging
+
+            $out = & $script:Updater -ConfigPath $script:Config -Rollback *>&1 | Out-String
+
+            $out | Should -Match 'Dry run'
+            Get-TreeFingerprint -Path $script:Staging | Should -Be $before
+            $info = Get-Content -LiteralPath (Join-Path $script:Staging 'alpha_mod\info.json') -Raw -Encoding UTF8 |
+                    ConvertFrom-Json
+            $info.version | Should -Be '2.0.0'
+        }
+
+        It 'restores the previous folder when -Apply is given' {
+            & $script:Updater -ConfigPath $script:Config -Rollback -Apply -Confirm:$false *>&1 | Out-Null
+
+            $info = Get-Content -LiteralPath (Join-Path $script:Staging 'alpha_mod\info.json') -Raw -Encoding UTF8 |
+                    ConvertFrom-Json
+            $info.version | Should -Be '1.0.0'
+        }
+
+        It 'rejects a hostile backup zip and leaves the installed mod in place' {
+            $set = @(Get-ChildItem -LiteralPath $script:Backups -Directory)[0]
+            $zip = Join-Path $set.FullName 'alpha_mod.zip'
+            $null = New-TestZip -Path $zip -Entries @{
+                'alpha_mod.mod'      = 'return {}'
+                '../escaped.txt'     = 'pwned'
+            }
+
+            { & $script:Updater -ConfigPath $script:Config -Rollback -Apply -Confirm:$false } |
+                Should -Throw -ExpectedMessage '*unsafe path*'
+
+            Test-Path (Join-Path $script:Staging 'alpha_mod\alpha_mod.mod') | Should -BeTrue
+            $info = Get-Content -LiteralPath (Join-Path $script:Staging 'alpha_mod\info.json') -Raw -Encoding UTF8 |
+                    ConvertFrom-Json
+            $info.version | Should -Be '2.0.0'
+            Test-Path (Join-Path $script:Root 'escaped.txt') | Should -BeFalse
+        }
+
+        It 'prunes extra backup-set directories down to -KeepBackups' {
+            1..4 | ForEach-Object {
+                $extra = Join-Path $script:Backups ('oldset-{0:D2}' -f $_)
+                New-Item -ItemType Directory -Path $extra -Force | Out-Null
+            }
+
+            $null = New-TestZip -Path (Join-Path $script:Downloads 'Alpha Mod-447-3-0-0-1719210000.zip') -Entries @{
+                'alpha_mod/alpha_mod.mod' = 'return {}'
+                'alpha_mod/info.json'     = '{"name":"Alpha Mod","version":"3.0.0"}'
+            }
+            & $script:Updater -ConfigPath $script:Config -NoApi -Apply -Force -KeepBackups 2 -Confirm:$false *>&1 | Out-Null
+
+            @(Get-ChildItem -LiteralPath $script:Backups -Directory).Count | Should -BeLessOrEqual 2
+        }
+    }
 }

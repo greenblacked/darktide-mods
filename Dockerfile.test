@@ -1,0 +1,43 @@
+# Linux container for the cross-platform half of this repo's checks.
+#
+# What this gives you:
+#   - Test-Modpack.ps1 (the validator) with PSScriptAnalyzer present, so the lint
+#     pass actually runs instead of warning that it is missing.
+#   - Invoke-Tests.ps1 -AllowNonWindows -Path Lock, the one Pester file that is
+#     genuinely platform-independent.
+#
+# What it cannot give you: the other ~143 Pester tests. They assert Windows
+# semantics (robocopy, $env:USERPROFILE, '\'-separated paths) on purpose. A Linux
+# container is still Linux; see .claude/skills/validate-change/SKILL.md.
+#
+# Base image: pin a Ubuntu tag, not 'latest'. On Apple Silicon, 'latest' has
+# resolved to linux/arm/v7; pwsh then segfaults under qemu. The build and run
+# pass --platform linux/amd64 so this matches GitHub ubuntu-latest.
+FROM mcr.microsoft.com/powershell:7.4-ubuntu-22.04
+
+# git is needed by two validator checks: 'config.json is not tracked by git' and
+# 'no agent attribution in commit messages'. Without it they silently no-op.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+# Pester and PSScriptAnalyzer from PSGallery. Pinned minimums, not exact versions:
+# the suite needs Pester 5's syntax, and anything newer is fine.
+RUN pwsh -NoProfile -Command " \
+      \$ErrorActionPreference = 'Stop'; \
+      Set-PSRepository -Name PSGallery -InstallationPolicy Trusted; \
+      Install-Module Pester -MinimumVersion 5.5.0 -Scope AllUsers -Force -SkipPublisherCheck; \
+      Install-Module PSScriptAnalyzer -Scope AllUsers -Force; \
+      Import-Module Pester -MinimumVersion 5.5.0; \
+      Import-Module PSScriptAnalyzer; \
+      Write-Host \"PowerShell \$(\$PSVersionTable.PSVersion), Pester \$((Get-Module Pester).Version)\" \
+    "
+
+WORKDIR /repo
+
+# git refuses to read a repo owned by another uid, which is the normal case for a
+# bind-mounted host checkout. Without this both git-backed checks degrade to warnings.
+RUN git config --global --add safe.directory /repo
+
+# Default: the validator only. Override the command to run a Pester slice.
+CMD ["pwsh", "-NoProfile", "-File", "./Test-Modpack.ps1"]

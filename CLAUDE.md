@@ -20,11 +20,20 @@ Nothing in this repository credits an AI assistant. That means:
 (tracked files) and `no agent attribution in commit messages` (trailers). CI
 checks out with `fetch-depth: 0` so the trailer scan sees the whole history.
 Pull request bodies stay a matter of care — nothing in the repository can see
-what GitHub stores.
+what GitHub stores. Sweep those with the `publish-check` skill after anything
+is published.
 
 Naming a model in prose is not attribution. The vendored `sepia` skill
 catalogues model fingerprints by name, and the `.claude/skills/` path is fixed
 by the tooling; neither is a credit line.
+
+## What the scripts must keep doing
+
+`rollback` writes nothing without `-Apply`. `restore` is
+`Deploy-DarktideMods.ps1 -Restore`, not a third process check in the dispatcher.
+`-KeepBackups` (default 10) bounds deploy zips, staging backup-set folders, and
+loader backup folders. `Assert-GameNotRunning` exists in exactly two copies
+(Deploy and Update); the validator fails if they drift.
 
 ## Reporting
 
