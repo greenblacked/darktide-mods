@@ -263,4 +263,14 @@ Describe 'Deploy-DarktideMods' {
             $out | Should -Match 'all \d+ entries resolve'
         }
     }
+
+    Context 'InstallLoader' {
+
+        It 'delegates to Install-DarktideLoader.ps1 rather than copying inline' {
+            # No LoaderSource and no payload in downloads: the dedicated script owns the
+            # error. A soft skip here would mean the old duplicated path came back.
+            { & $script:Deployer -ConfigPath $script:Config -Apply -InstallLoader -Confirm:$false } |
+                Should -Throw -ExpectedMessage '*No mod loader payload found*'
+        }
+    }
 }

@@ -275,6 +275,15 @@ if (-not $LoaderSource) {
 if ($LoaderSource) { Write-Ok "Loader    : $LoaderSource" }
 else { Write-Warn "Loader    : not found - download it from https://www.nexusmods.com/warhammer40kdarktide/mods/19" }
 
+# Nexus key stays in the environment, never in the file. Offline is the default;
+# a key only enables 'check'. Writing one into config.json puts a secret on disk
+# with default permissions and risks committing it.
+if ($env:NEXUS_API_KEY) {
+    Write-Ok 'API key   : NEXUS_API_KEY is set in the environment (not written to config.json)'
+} else {
+    Write-Host 'API key   : not set. Optional Nexus checking uses the NEXUS_API_KEY environment variable only.'
+}
+
 $parent = Split-Path -Parent $ModsRoot
 $config = [ordered]@{
     ModsRoot         = $ModsRoot
@@ -284,7 +293,13 @@ $config = [ordered]@{
     BackupRoot       = (Join-Path $parent 'mod_backups')
     DeployBackupRoot = (Join-Path $parent 'deploy_backups')
     GameDomain       = 'warhammer40kdarktide'
-    ApiKey           = ''
+}
+
+# Fail closed: never persist an ApiKey field. Older configs may still carry an
+# empty one; this script simply stops writing it. A non-empty value in any
+# candidate payload is treated as a bug, not something to save.
+if ($config.Contains('ApiKey')) {
+    throw 'Refusing to write ApiKey into config.json. Use the NEXUS_API_KEY environment variable.'
 }
 
 Write-Host ''
@@ -300,7 +315,12 @@ if ((Test-Path -LiteralPath $ConfigPath) -and -not $Force) {
 }
 
 if ($PSCmdlet.ShouldProcess($ConfigPath, 'Write configuration')) {
-    ($config | ConvertTo-Json) | Set-Content -LiteralPath $ConfigPath -Encoding UTF8
+    $json = $config | ConvertTo-Json
+    # Belt and braces: refuse to write if the rendered JSON somehow contains a key field.
+    if ($json -match '(?i)"ApiKey"\s*:') {
+        throw 'Refusing to write ApiKey into config.json. Use the NEXUS_API_KEY environment variable.'
+    }
+    $json | Set-Content -LiteralPath $ConfigPath -Encoding UTF8
     Write-Ok "Wrote $ConfigPath"
 
     # Create staging if it is missing, so 'status' has something to report.
@@ -314,4 +334,6 @@ if ($PSCmdlet.ShouldProcess($ConfigPath, 'Write configuration')) {
     Write-Host '  .\darktide.ps1 status                       see what is installed'
     Write-Host '  .\darktide.ps1 loader -Apply                install the Darktide Mod Loader'
     Write-Host '  .\darktide.ps1 import -Path <loadout.zip> -Apply   restore a saved loadout'
+    Write-Host '  .\darktide.ps1 sync -Apply                  install downloads, then deploy'
+    Write-Host '  (optional) set NEXUS_API_KEY in the environment for .\darktide.ps1 check'
 }

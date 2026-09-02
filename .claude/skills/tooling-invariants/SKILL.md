@@ -112,9 +112,8 @@ If a key is ever introduced, it goes in the `NEXUS_API_KEY` environment variable
 never logged; `darktide.ps1` prints only whether one is set, never the value. There is
 deliberately **no `-ApiKey` parameter** — it existed once and was removed, because
 anything passed on a command line shows up in process listings and shell history. Do not
-add it back. The remaining soft spot is `Initialize-DarktideConfig.ps1`, which will
-persist a key into `config.json` in plaintext with default permissions; prefer the
-environment variable.
+add it back. `Initialize-DarktideConfig.ps1` refuses to write an `ApiKey` field into
+`config.json` (fail closed): keys live in `NEXUS_API_KEY` only.
 
 ## Never redistribute mod content
 
