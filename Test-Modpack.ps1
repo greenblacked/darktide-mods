@@ -468,17 +468,23 @@ Test-Case 'destructive filesystem calls use -LiteralPath' {
 }
 
 Test-Case 'release allow-list files exist' {
-    $ci = Join-Path $root '.github/workflows/ci.yml'
-    if (-not (Test-Path -LiteralPath $ci)) { throw '.github/workflows/ci.yml is missing' }
-    $yml = Get-Content -LiteralPath $ci -Raw -Encoding UTF8
-    $m = [regex]::Match($yml, '(?s)\$include = @\((.*?)\)')
-    if (-not $m.Success) { throw 'could not find the release $include allow-list in ci.yml' }
-    $listed = [regex]::Matches($m.Groups[1].Value, "'([^']+)'") | ForEach-Object { $_.Groups[1].Value }
-    if ($listed.Count -lt 5) { throw "allow-list parsed too small ($($listed.Count) entries)" }
-    # The stage step also copies these two outside the array.
-    $listed = @($listed) + @('Invoke-Tests.ps1', 'tests')
-    $missing = @($listed | Where-Object { -not (Test-Path -LiteralPath (Join-Path $root $_) ) })
+    # Asks the packaging script what it ships rather than running a regex over the
+    # workflow YAML. The old version did the latter, could not see the two files the
+    # job copied outside the array it matched, and said so in a comment - a check
+    # that documents its own blind spot is one edit away from missing something.
+    $packer = Join-Path $root 'New-ReleasePackage.ps1'
+    if (-not (Test-Path -LiteralPath $packer)) { throw 'New-ReleasePackage.ps1 is missing' }
+
+    $listed = @(& $packer -ListOnly)
+    if ($listed.Count -lt 5) { throw "allow-list came back too small ($($listed.Count) entries)" }
+
+    $missing = @($listed | Where-Object { -not (Test-Path -LiteralPath (Join-Path $root $_)) })
     if ($missing) { throw "release allow-list path missing: $($missing -join ', ')" }
+
+    # The tool is useless without its entry point and the manifest it reads.
+    foreach ($needed in @('darktide.ps1', 'darktide-modpack.lock.json', 'README.md', 'LICENSE')) {
+        if ($listed -notcontains $needed) { throw "release allow-list no longer ships '$needed'" }
+    }
 }
 
 Test-Case '.gitignore covers the important things' {

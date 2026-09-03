@@ -201,6 +201,27 @@ jobs:
                 pwsh -NoProfile -File ./Invoke-Tests.ps1 -AllowNonWindows -Path Lock -Output None -SkipValidator
         shell: bash
 
+      # Packaging is the one irreversible path here and it used to run only during a
+      # real publish. Building it on every push means a broken allow-list is a red
+      # build rather than a bad release. -NoArchive stages and scans; it publishes
+      # nothing and needs no version.
+      - name: The release package still builds
+        shell: pwsh
+        run: |
+          ./New-ReleasePackage.ps1 -Destination "$env:RUNNER_TEMP/pkg" -NoArchive -Confirm:$false
+          $staged = Join-Path $env:RUNNER_TEMP 'pkg/darktide-mods'
+          foreach ($needed in @('darktide.ps1', 'README.md', 'LICENSE', 'tests')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $staged $needed))) {
+              throw "staged package is missing $needed"
+            }
+          }
+          # What must never leave the repo, asserted against the staged tree rather
+          # than trusted from the allow-list.
+          $leaked = @(Get-ChildItem -LiteralPath $staged -Recurse -File |
+                      Where-Object { $_.Extension -in @('.mod', '.zip') -or
+                                     $_.Name -in @('config.json', 'nexus-catalog.json') })
+          if ($leaked) { throw "staged package leaked: $(($leaked | ForEach-Object { $_.Name }) -join ', ')" }
+
       # The setup script is the only shell in the repo and nothing else checks it.
       - name: Lint the test-environment setup script
         run: |
@@ -252,48 +273,14 @@ jobs:
           "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           Write-Host "Release version: $v"
 
-      - name: Stage package
-        shell: pwsh
-        run: |
-          $dist = 'dist/darktide-mods'
-          New-Item -ItemType Directory -Path $dist -Force | Out-Null
-          $include = @(
-            'darktide.ps1',
-            'Update-DarktideMods.ps1',
-            'Deploy-DarktideMods.ps1',
-            'New-ModpackLock.ps1',
-            'Export-DarktideLoadout.ps1',
-            'Import-DarktideLoadout.ps1',
-            'Initialize-DarktideConfig.ps1',
-            'Install-DarktideLoader.ps1',
-            'Test-Modpack.ps1',
-            'config.example.json',
-            'mods-map.json',
-            'darktide-modpack.lock.json',
-            'README.md',
-            'LICENSE'
-          )
-          foreach ($f in $include) {
-            if (-not (Test-Path $f)) { throw "Missing required file: $f" }
-            Copy-Item $f -Destination $dist -Force
-          }
-          Copy-Item 'Invoke-Tests.ps1' -Destination $dist -Force
-          Copy-Item 'tests' -Destination $dist -Recurse -Force
-          $bad = Get-ChildItem $dist -Recurse -File |
-                 Where-Object { $_.Extension -in @('.mod', '.zip') -or $_.Name -eq 'config.json' }
-          if ($bad) { throw "Refusing to package: $($bad.Name -join ', ')" }
-          Write-Host "Packaged $((Get-ChildItem $dist -File).Count) files."
-
-      - name: Create archive
+      # Same script the push builds run, not a copy of it. The allow-list and the
+      # forbidden-content scan live in one place so a release cannot ship something
+      # the everyday check would have refused.
+      - name: Stage and archive
         shell: pwsh
         env:
           VERSION: ${{ steps.ver.outputs.version }}
-        run: |
-          $v = $env:VERSION
-          Compress-Archive -Path 'dist/darktide-mods/*' -DestinationPath "dist/darktide-mods-$v.zip" -Force
-          $h = (Get-FileHash "dist/darktide-mods-$v.zip" -Algorithm SHA256).Hash.ToLower()
-          "$h  darktide-mods-$v.zip" | Out-File "dist/darktide-mods-$v.zip.sha256" -Encoding ascii
-          Write-Host "SHA-256: $h"
+        run: ./New-ReleasePackage.ps1 -Destination dist -Version $env:VERSION -Confirm:$false
 
       - name: Write release notes
         shell: pwsh

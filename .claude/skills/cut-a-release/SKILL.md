@@ -10,6 +10,11 @@ The release job is `workflow_dispatch`-only. Check whether it has ever actually 
 written there were no tags at all. If yours is the first, treat it as a genuine first
 run and verify each step rather than trusting it.
 
+What *is* proven is the packaging: `New-ReleasePackage.ps1` stages and scans on every
+push, and `tests/Package.Tests.ps1` covers the allow-list and plants each kind of
+forbidden file to confirm the scan refuses it. Tagging, the GitHub release itself and
+the notes are still unexercised.
+
 Publishing is the one irreversible thing this repo does. A wrong lockfile can be
 corrected in the next release; a mod file that escapes into a public zip cannot be
 un-downloaded, and it is someone else's copyrighted work.
@@ -52,15 +57,30 @@ The tag is `v<version>`; the job creates it, so do not tag by hand first.
 
 ## What ships, and what must never
 
-`Stage package` copies an explicit **allow-list**: the eight `.ps1` tools plus `Test-Modpack.ps1`,
+`New-ReleasePackage.ps1` owns this, and the release job calls it rather than carrying a
+copy. It copies an explicit **allow-list**: the eight `.ps1` tools plus `Test-Modpack.ps1`,
 `config.example.json`, `mods-map.json`, `darktide-modpack.lock.json`, `README.md`,
 `LICENSE`, plus `Invoke-Tests.ps1` and `tests/` so anyone can verify the tooling before
-running it against their own game folder. Missing file → the job throws rather than
-shipping a partial package.
+running it against their own game folder. Missing file → it throws rather than shipping
+a partial package.
 
 Then a second, independent check refuses to package anything with a `.mod` or `.zip`
 extension or named `config.json`. Both layers should stay. The allow-list is the
 mechanism; the scan is what catches a mistake in the allow-list.
+
+Two things follow from it being a script rather than YAML. The Linux job runs
+`-NoArchive` on **every push**, so a broken allow-list is a red build rather than a bad
+release — this path used to run only during a real publish. And the validator asks it
+`-ListOnly` instead of running a regex over the workflow file, which is what the check
+used to do; that version could not see the two files the job copied outside the array it
+matched, and said so in its own comment.
+
+To check the packaging by hand without publishing anything:
+
+```powershell
+.\New-ReleasePackage.ps1 -NoArchive          # stage and scan, no zip
+.\New-ReleasePackage.ps1 -Version 1.2.0      # zip plus .sha256, still local
+```
 
 **Never ships:** mod content of any kind, `config.json`, an API key, `nexus-catalog.json`,
 backups, logs. The lockfile is a *manifest* — it names mods and links to each author's
