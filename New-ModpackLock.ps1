@@ -1,6 +1,7 @@
 <#
 .SYNOPSIS
-    Generates darktide-modpack.lock.json from an installed Darktide mods folder.
+    Generates darktide-modpack.lock.json from an installed Darktide mods folder,
+    or surgically syncs Nexus ids into an existing lockfile from mods-map.json.
 
 .DESCRIPTION
     The lockfile is a MANIFEST, not a mod archive. It records which mods a setup uses,
@@ -14,8 +15,17 @@
       2. info.json        - shipped by the mod author
       3. nothing          - recorded as null, which is honest rather than guessed
 
+    -SyncIdsFromMap updates only modId and url on existing lock entries from
+    mods-map.json. It does not need ModsRoot and does not rewrite version,
+    versionSource, contentSha256, loadOrder, or entry count. Map entries with a
+    null modId are left alone. Filling versions is refresh-lock's job.
+
 .PARAMETER ModsRoot
     The Darktide Mod Loader mods folder, e.g. D:\Darktide\mods
+
+.PARAMETER SyncIdsFromMap
+    Copy non-null modId values (and matching Nexus urls) from mods-map.json into
+    the existing lockfile. Does not require ModsRoot.
 
 .PARAMETER OutFile
     Where to write the lockfile. Defaults to darktide-modpack.lock.json next to this script.
@@ -29,15 +39,28 @@
 
 .EXAMPLE
     .\New-ModpackLock.ps1 -ModsRoot D:\Darktide\mods
+
+.EXAMPLE
+    .\New-ModpackLock.ps1 -SyncIdsFromMap
 #>
 
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = 'FromMods')]
 param(
-    [Parameter(Mandatory)][string] $ModsRoot,
+    [Parameter(Mandatory, ParameterSetName = 'FromMods')]
+    [string] $ModsRoot,
+
+    [Parameter(Mandatory, ParameterSetName = 'SyncIds')]
+    [switch] $SyncIdsFromMap,
+
     [string] $OutFile = (Join-Path $PSScriptRoot 'darktide-modpack.lock.json'),
     [string] $MapPath = (Join-Path $PSScriptRoot 'mods-map.json'),
-    [string] $Name    = 'Darktide loadout',
+
+    [Parameter(ParameterSetName = 'FromMods')]
+    [string] $Name = 'Darktide loadout',
+
     [string] $GameDomain = 'warhammer40kdarktide',
+
+    [Parameter(ParameterSetName = 'FromMods')]
     [switch] $NoHash
 )
 
@@ -76,19 +99,98 @@ function Get-FolderHash {
     }
 }
 
+function Get-ModMapTable {
+    param([string] $Path)
+
+    $map = @{}
+    if (-not (Test-Path -LiteralPath $Path)) { return $map }
+    $raw = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
+    if (-not $raw.Trim()) { return $map }
+    foreach ($p in ($raw | ConvertFrom-Json).PSObject.Properties) { $map[$p.Name] = $p.Value }
+    return $map
+}
+
+# ---- SyncIdsFromMap: surgical id/url update, no ModsRoot --------------------------
+
+if ($SyncIdsFromMap) {
+    if (-not (Test-Path -LiteralPath $OutFile)) {
+        throw "Lockfile '$OutFile' does not exist. Generate one with -ModsRoot first."
+    }
+    if (-not (Test-Path -LiteralPath $MapPath)) {
+        throw "Map '$MapPath' does not exist."
+    }
+
+    $map = Get-ModMapTable -Path $MapPath
+    if ($map.Count -eq 0) {
+        throw "Map '$MapPath' is empty or has no entries."
+    }
+
+    $lock = Get-Content -LiteralPath $OutFile -Raw -Encoding UTF8 | ConvertFrom-Json
+    if (-not ($lock.PSObject.Properties.Name -contains 'mods') -or -not $lock.mods) {
+        throw "Lockfile '$OutFile' has no mods array."
+    }
+
+    $updated = 0
+    $skippedNull = 0
+    $unmatched = 0
+
+    foreach ($m in @($lock.mods)) {
+        $folder = "$($m.folder)"
+        if (-not $map.ContainsKey($folder)) {
+            $unmatched++
+            continue
+        }
+
+        $e = $map[$folder]
+        $hasModId = ($e.PSObject.Properties.Name -contains 'modId') -and $e.modId
+        if (-not $hasModId) {
+            # Map says null (or missing) - leave the lock entry alone.
+            $skippedNull++
+            continue
+        }
+
+        $newId = [int]$e.modId
+        $newUrl = "https://www.nexusmods.com/$GameDomain/mods/$newId"
+        $changed = $false
+
+        $currentId = $null
+        if ($m.PSObject.Properties.Name -contains 'modId' -and $null -ne $m.modId -and "$($m.modId)" -ne '') {
+            $currentId = [int]$m.modId
+        }
+        if ($currentId -ne $newId) {
+            $m.modId = $newId
+            $changed = $true
+        }
+
+        $currentUrl = if ($m.PSObject.Properties.Name -contains 'url') { $m.url } else { $null }
+        if ("$currentUrl" -ne $newUrl) {
+            $m.url = $newUrl
+            $changed = $true
+        }
+
+        if ($changed) { $updated++ }
+    }
+
+    ($lock | ConvertTo-Json -Depth 8) | Set-Content -LiteralPath $OutFile -Encoding UTF8
+
+    Write-Host ''
+    Write-Host "Synced ids into $OutFile" -ForegroundColor Green
+    Write-Host "  updated:       $updated"
+    Write-Host "  map-null left: $skippedNull"
+    Write-Host "  not in map:    $unmatched"
+    Write-Host "  entries:       $(@($lock.mods).Count) (unchanged)"
+    return
+}
+
+# ---- FromMods: full lockfile generation -------------------------------------------
+
 if (-not (Test-Path -LiteralPath $ModsRoot -PathType Container)) {
     throw "ModsRoot '$ModsRoot' does not exist."
 }
 $ModsRoot = (Resolve-Path -LiteralPath $ModsRoot).Path
 
 # Load the folder -> Nexus id map, if present.
-$map = @{}
-if (Test-Path -LiteralPath $MapPath) {
-    $raw = Get-Content -LiteralPath $MapPath -Raw -Encoding UTF8
-    if ($raw.Trim()) {
-        foreach ($p in ($raw | ConvertFrom-Json).PSObject.Properties) { $map[$p.Name] = $p.Value }
-    }
-}
+$map = Get-ModMapTable -Path $MapPath
 
 # Load order, comments stripped.
 $loadOrder = @()

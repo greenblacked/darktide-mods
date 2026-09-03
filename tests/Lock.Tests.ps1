@@ -123,6 +123,127 @@ Describe 'New-ModpackLock' {
     }
 }
 
+Describe 'New-ModpackLock -SyncIdsFromMap' {
+
+    BeforeEach {
+        $script:Root = New-TestSandbox
+        $script:Out  = Join-Path $script:Root 'test.lock.json'
+        $script:Map  = Join-Path $script:Root 'mods-map.json'
+
+        # Pre-existing lockfile: some ids missing, one already set, versions/hashes present.
+        @{
+            schemaVersion = 1
+            name          = 'fixture'
+            game          = 'warhammer40kdarktide'
+            generatedAt   = '2026-01-01T00:00:00Z'
+            generatedBy   = 'fixture'
+            note          = 'test'
+            modCount      = 4
+            loadOrder     = @('alpha_mod', 'beta_mod')
+            mods          = @(
+                [ordered]@{
+                    folder = 'alpha_mod'; name = 'Alpha'; modId = $null; version = '1.0.0'
+                    versionSource = 'info.json'
+                    url = $null
+                    contentSha256 = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+                }
+                [ordered]@{
+                    folder = 'beta_mod'; name = 'Beta'; modId = $null; version = $null
+                    versionSource = 'none'
+                    url = $null
+                    contentSha256 = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+                }
+                [ordered]@{
+                    folder = 'afk'; name = 'afk'; modId = $null; version = $null
+                    versionSource = 'none'
+                    url = $null
+                    contentSha256 = 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'
+                }
+                [ordered]@{
+                    folder = 'already'; name = 'Already'; modId = 99; version = '2.0'
+                    versionSource = 'info.json'
+                    url = 'https://www.nexusmods.com/warhammer40kdarktide/mods/99'
+                    contentSha256 = 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'
+                }
+            )
+        } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $script:Out -Encoding UTF8
+
+        @{
+            alpha_mod = @{ modId = 447; name = 'Alpha Mod' }
+            beta_mod  = @{ modId = 252; name = 'Beta Mod' }
+            afk       = @{ modId = $null; name = 'afk' }
+            already   = @{ modId = 100; name = 'Already Mapped' }
+        } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $script:Map -Encoding UTF8
+    }
+
+    AfterEach {
+        if ($script:Root -and (Test-Path -LiteralPath $script:Root)) {
+            Remove-Item -LiteralPath $script:Root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'fills modId and url from the map without requiring ModsRoot' {
+        & $script:Locker -SyncIdsFromMap -OutFile $script:Out -MapPath $script:Map *>&1 | Out-Null
+        $lock = Get-Content -LiteralPath $script:Out -Raw -Encoding UTF8 | ConvertFrom-Json
+
+        $alpha = @($lock.mods | Where-Object { $_.folder -eq 'alpha_mod' })[0]
+        $alpha.modId | Should -Be 447
+        $alpha.url   | Should -Be 'https://www.nexusmods.com/warhammer40kdarktide/mods/447'
+
+        $beta = @($lock.mods | Where-Object { $_.folder -eq 'beta_mod' })[0]
+        $beta.modId | Should -Be 252
+        $beta.url   | Should -Be 'https://www.nexusmods.com/warhammer40kdarktide/mods/252'
+    }
+
+    It 'preserves version, versionSource, contentSha256, loadOrder and entry count' {
+        $before = Get-Content -LiteralPath $script:Out -Raw -Encoding UTF8 | ConvertFrom-Json
+
+        & $script:Locker -SyncIdsFromMap -OutFile $script:Out -MapPath $script:Map *>&1 | Out-Null
+        $after = Get-Content -LiteralPath $script:Out -Raw -Encoding UTF8 | ConvertFrom-Json
+
+        $after.modCount | Should -Be $before.modCount
+        @($after.mods).Count | Should -Be @($before.mods).Count
+        ($after.loadOrder | ConvertTo-Json -Depth 5) | Should -Be ($before.loadOrder | ConvertTo-Json -Depth 5)
+
+        foreach ($folder in @('alpha_mod', 'beta_mod', 'afk', 'already')) {
+            $b = @($before.mods | Where-Object { $_.folder -eq $folder })[0]
+            $a = @($after.mods  | Where-Object { $_.folder -eq $folder })[0]
+            "$($a.version)"       | Should -Be "$($b.version)"
+            "$($a.versionSource)" | Should -Be "$($b.versionSource)"
+            "$($a.contentSha256)" | Should -Be "$($b.contentSha256)"
+            "$($a.name)"          | Should -Be "$($b.name)"
+        }
+    }
+
+    It 'leaves map-null folders unchanged' {
+        & $script:Locker -SyncIdsFromMap -OutFile $script:Out -MapPath $script:Map *>&1 | Out-Null
+        $lock = Get-Content -LiteralPath $script:Out -Raw -Encoding UTF8 | ConvertFrom-Json
+
+        $afk = @($lock.mods | Where-Object { $_.folder -eq 'afk' })[0]
+        $afk.modId | Should -BeNullOrEmpty
+        $afk.url   | Should -BeNullOrEmpty
+    }
+
+    It 'overwrites an existing modId when the map has a different non-null id' {
+        & $script:Locker -SyncIdsFromMap -OutFile $script:Out -MapPath $script:Map *>&1 | Out-Null
+        $lock = Get-Content -LiteralPath $script:Out -Raw -Encoding UTF8 | ConvertFrom-Json
+
+        $already = @($lock.mods | Where-Object { $_.folder -eq 'already' })[0]
+        $already.modId | Should -Be 100
+        $already.url   | Should -Be 'https://www.nexusmods.com/warhammer40kdarktide/mods/100'
+    }
+
+    It 'allows modId set with version still null' {
+        & $script:Locker -SyncIdsFromMap -OutFile $script:Out -MapPath $script:Map *>&1 | Out-Null
+        $lock = Get-Content -LiteralPath $script:Out -Raw -Encoding UTF8 | ConvertFrom-Json
+
+        $beta = @($lock.mods | Where-Object { $_.folder -eq 'beta_mod' })[0]
+        $beta.modId   | Should -Be 252
+        $beta.version | Should -BeNullOrEmpty
+        $beta.versionSource | Should -Be 'none'
+    }
+}
+
 Describe 'Test-Modpack (the repo validator)' {
 
     It 'passes against the real repository' {

@@ -246,6 +246,7 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 | `rollback` | Undo the last staging install. Dry run until `-Apply`. |
 | `restore` | Undo the last deploy to the game folder. Dry run until `-Apply`. |
 | `lock` | Regenerate `darktide-modpack.lock.json` from what's installed. |
+| `lock -SyncIdsFromMap` | Copy non-null Nexus ids (and urls) from `mods-map.json` into the existing lockfile. No `ModsRoot` needed; versions and hashes stay put. |
 | `export` | Zip your whole loadout into one file, as a personal backup. |
 | `import` | Restore a loadout zip into staging and deploy it, in one step. |
 
@@ -259,6 +260,7 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 # -RunToggle on that run: the toggle bat flips state and would undo the patch.
 .\darktide.ps1 deploy -Apply -RunToggle                   # re-patch only, loader already present
 .\darktide.ps1 update -Apply -Force -Only NumericUI         # reinstall or downgrade one mod
+.\darktide.ps1 lock -SyncIdsFromMap                        # push mods-map ids into the lockfile
 ```
 
 ---
@@ -476,6 +478,21 @@ environment:
 on install; the rest need the number from the mod URL pasted in. Set `"pinned": true`
 on anything `update` should leave alone.
 
+After editing the map, push those ids into the lockfile without regenerating it:
+
+```powershell
+.\darktide.ps1 lock -SyncIdsFromMap
+# or:
+.\New-ModpackLock.ps1 -SyncIdsFromMap
+```
+
+That copies only non-null `modId` values (and the matching Nexus `url`). Folders the
+map still leaves at `null` stay untouched. Versions, `versionSource`, content hashes,
+load order, and entry count are not rewritten — `refresh-lock` owns fetching versions
+from Nexus. A lock entry with a `modId` and a null `version` is valid; `check` /
+`update` read versions from the installed mod folders, not from the lockfile, and treat
+a missing local version as `UNKNOWN-LOCAL` rather than inventing one.
+
 ```powershell
 .\Update-DarktideMods.ps1 -BuildCatalog   # needs a key; crawls the Nexus list
 .\Update-DarktideMods.ps1 -Resolve
@@ -651,7 +668,7 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser
 | `darktide.ps1` | Entry point. All the verbs above. |
 | `Update-DarktideMods.ps1` | Version checking and installing into staging. |
 | `Deploy-DarktideMods.ps1` | Staging → game folder sync, with validation and backup. |
-| `New-ModpackLock.ps1` | Generates the lockfile from an installed mods folder. |
+| `New-ModpackLock.ps1` | Generates the lockfile from an installed mods folder, or (`-SyncIdsFromMap`) copies Nexus ids from `mods-map.json` into an existing lockfile. |
 | `Initialize-DarktideConfig.ps1` | Finds the game via Steam and writes `config.json`. |
 | `Install-DarktideLoader.ps1` | Installs/updates the mod loader, manages the bundle patch. |
 | `Export-DarktideLoadout.ps1` | Packs your loadout into one zip (local backup). |

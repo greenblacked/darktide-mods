@@ -13,6 +13,8 @@
         .\darktide.ps1 rollback   undo the last staging install (needs -Apply)
         .\darktide.ps1 restore    undo the last deploy to the game folder (needs -Apply)
         .\darktide.ps1 lock       regenerate darktide-modpack.lock.json
+        .\darktide.ps1 lock -SyncIdsFromMap
+                                  copy Nexus ids from mods-map.json into the lockfile
         .\darktide.ps1 init       find the game automatically and write config.json
         .\darktide.ps1 loader     install or update the Darktide Mod Loader
         .\darktide.ps1 export     zip your whole loadout as a personal backup
@@ -23,6 +25,10 @@
 
 .PARAMETER Verb
     Which action to run. See above.
+
+.PARAMETER SyncIdsFromMap
+    With 'lock': copy non-null modId/url values from mods-map.json into the
+    existing lockfile. Does not need ModsRoot or a full regenerate.
 
 .PARAMETER Apply
     Actually make changes. Without it you get a plan and nothing else.
@@ -60,6 +66,7 @@ param(
     [switch]   $InstallLoader,
     [switch]   $RunToggle,
     [switch]   $Force,
+    [switch]   $SyncIdsFromMap,
     [string[]] $Only,
     [string[]] $Skip,
     [string]   $BackupSet,
@@ -102,6 +109,13 @@ if ($Verb -eq 'init') {
 
 if ($Verb -eq 'help') {
     Get-Help -Full $PSCommandPath | Out-String | Write-Host
+    return
+}
+
+# SyncIdsFromMap only touches the lockfile and mods-map.json - no config, no ModsRoot.
+if ($Verb -eq 'lock' -and $SyncIdsFromMap) {
+    Write-Head 'Syncing lockfile Nexus ids from mods-map'
+    & $Locker -SyncIdsFromMap
     return
 }
 
