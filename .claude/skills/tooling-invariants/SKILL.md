@@ -150,7 +150,9 @@ the identity half with `commits are authored by a person, not an agent`, which r
 the author and committer fields the other two never look at. That last one fails on
 a bot-shaped identity and only warns on an unexpected human, so a merge made through
 the GitHub web UI does not turn CI red. CI checks out with `fetch-depth: 0` so all
-three see the whole history.
+three see the whole history, and `tests/Attribution.Tests.ps1` checks the checks
+by planting each class of violation in a throwaway clone - a detector verified only
+against a clean tree has not been verified at all.
 Pull request bodies stay a matter of care. Naming a model in prose is not
 attribution; the vendored `sepia` skill catalogues model fingerprints by name, and
 the `.claude/skills/` path is fixed by the tooling.

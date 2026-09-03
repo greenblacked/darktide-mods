@@ -261,17 +261,22 @@ Test-Case 'no agent attribution in commit messages' {
             }
         } finally { $ErrorActionPreference = $eap }
 
+        # Each element is parenthesised, and that is load-bearing: ',' binds tighter
+        # than '+', so without the brackets the whole list parses as one addition and
+        # collapses into a single space-joined string. The check then matches nothing
+        # and passes on everything - which is what it did until it was tested against a
+        # planted trailer rather than against a clean tree.
         $agents = @(
-            [char]0x57 + 'arp',
-            [char]0x43 + 'laude',
-            [char]0x43 + 'opilot',
-            [char]0x43 + 'ursor',
-            [char]0x44 + 'evin',
-            [char]0x43 + 'odex',
-            [char]0x41 + 'ider'
+            ([char]0x57 + 'arp'),
+            ([char]0x43 + 'laude'),
+            ([char]0x43 + 'opilot'),
+            ([char]0x43 + 'ursor'),
+            ([char]0x44 + 'evin'),
+            ([char]0x43 + 'odex'),
+            ([char]0x41 + 'ider')
         )
         $text   = $log -join "`n"
-        $count  = @($text -split "`u{001e}" | Where-Object { $_.Trim() }).Count
+        $count  = @($text -split ([char]0x1e) | Where-Object { $_.Trim() }).Count
 
         $hits = @()
         foreach ($line in ($text -split "`n")) {
@@ -317,21 +322,22 @@ Test-Case 'commits are authored by a person, not an agent' {
 
         # Assembled from fragments for the same reason as the list above: spelled out,
         # this file becomes the thing its own check reports.
+        # Parenthesised for the reason spelled out in the check above.
         $agents = @(
-            [char]0x57 + 'arp',
-            [char]0x43 + 'laude',
-            [char]0x43 + 'opilot',
-            [char]0x43 + 'ursor',
-            [char]0x44 + 'evin',
-            [char]0x43 + 'odex',
-            [char]0x41 + 'ider',
+            ([char]0x57 + 'arp'),
+            ([char]0x43 + 'laude'),
+            ([char]0x43 + 'opilot'),
+            ([char]0x43 + 'ursor'),
+            ([char]0x44 + 'evin'),
+            ([char]0x43 + 'odex'),
+            ([char]0x41 + 'ider'),
             'anthropic.com',
             'openai.com'
         )
 
         $seen = [System.Collections.Generic.HashSet[string]]::new()
         foreach ($line in $log) {
-            foreach ($id in ($line -split "`u{001f}")) {
+            foreach ($id in ($line -split ([char]0x1f))) {
                 $id = $id.Trim()
                 if ($id) { [void]$seen.Add($id) }
             }

@@ -50,6 +50,15 @@ Sweep, in this order:
 5. **Comments and reviews** - on every pull request the work touches, not only the
    current one.
 
+All three repository checks are themselves covered by `tests/Attribution.Tests.ps1`,
+which plants a trailer, a footer and a bot-authored commit in a throwaway clone and
+asserts each check fails on its own class and stays quiet on the others. That file
+exists because the commit-message check was inert for its whole life: its list of tool
+names was written as `@([char]0x57 + 'arp', [char]0x43 + 'laude', ...)`, and `,` binds
+tighter than `+` in PowerShell, so the list collapsed into one space-joined string that
+matched nothing. It passed every run. Testing a detector against a clean tree proves
+only that it does not false-positive.
+
 Steps 4 and 5 stay manual: nothing inside the repository can see what GitHub stores.
 
 ## When it has already been published
