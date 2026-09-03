@@ -53,13 +53,21 @@ Its exit codes are the thing to read, not the last line of output:
 point: a script or a habit that treats 0-or-nothing as "green" cannot mistake it for a
 passing suite.
 
-**3. CI on `windows-latest` — the actual verdict.**
+**3. CI — the actual verdict, across three engines.**
 
 `.github/workflows/ci.yml` runs on every push to every branch and every PR to `main`.
 The `validate` job installs Pester and PSScriptAnalyzer, runs the suite with
 `-SkipValidator`, then runs the validator separately. If you cannot run Pester locally,
 pushing a branch and reading this job is the honest way to know whether a change works —
 do that rather than reporting "tests pass" on the strength of the validator alone.
+
+A second Windows job runs the same suite under **Windows PowerShell 5.1**, the engine
+that ships with Windows and the one a user who has installed nothing will reach for
+first. `Invoke-Tests.ps1` branches on `$PSVersionTable.PSEdition -eq 'Desktop'` and
+nothing had ever taken that branch. It pays for itself: the validator was splitting on
+`` `u{001e} ``, an escape PowerShell 7 added and 5.1 parses as a literal, so a check
+was quietly reading the wrong thing. If you add syntax to a script that runs anywhere,
+this is the job that will tell you it is 7-only.
 
 The `release` and `refresh-lock` jobs are `workflow_dispatch`-gated and will show as
 skipped on a normal push. That is correct, not a failure.
