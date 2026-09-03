@@ -9,7 +9,7 @@ The tools here are Windows-only by construction. That single fact drives everyth
 below, and it is the thing most likely to send you down a wrong path: a test run that
 looks catastrophically broken is usually just a run on the wrong operating system.
 
-## The three gates, in order
+## The gates, in order
 
 **1. `Test-Modpack.ps1` — runs anywhere, run it always.**
 
@@ -60,6 +60,14 @@ The `validate` job installs Pester and PSScriptAnalyzer, runs the suite with
 `-SkipValidator`, then runs the validator separately. If you cannot run Pester locally,
 pushing a branch and reading this job is the honest way to know whether a change works —
 do that rather than reporting "tests pass" on the strength of the validator alone.
+
+A macOS job runs the validator and the same exit-code contract on `macos-latest`.
+Everything in this repo that mentions macOS - the README, `CLAUDE.md`, this skill,
+`Invoke-Tests.ps1`'s own help - had never been executed on a Mac; the Linux job was
+standing in for both. macOS runners are also arm64, which is the one place the two
+platforms genuinely differ: `setup-test-env.sh` hardcoded a `linux-x64` download
+until that job existed, so a Mac following this skill installed a binary it could
+not run.
 
 A second Windows job runs the same suite under **Windows PowerShell 5.1**, the engine
 that ships with Windows and the one a user who has installed nothing will reach for
@@ -127,6 +135,13 @@ It installs PowerShell 7, tries PSGallery first, and falls back to building Pest
 source using the Roslyn assemblies inside pwsh (there is no dotnet SDK in these
 environments). It is idempotent, so re-running it is safe and cheap. Exit codes: 0 ready,
 1 install failed, 2 bad usage, 3 `--check` found something missing.
+
+It picks its download from `uname`, so it works on Linux and macOS and on x64 and arm64.
+On macOS `/opt` is not writable without `sudo`, so pass a prefix you own:
+
+```bash
+PWSH_PREFIX="$HOME/.local/pwsh" .claude/skills/validate-change/scripts/setup-test-env.sh
+```
 
 `references/pester-without-psgallery.md` explains what the script does step by step and
 why each step is needed — read it if the script fails or you need to adapt it, not

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Make a Linux box able to run this repo's checks: PowerShell 7, then Pester 5.
+# Make a Linux or macOS box able to run this repo's checks: PowerShell 7, then Pester 5.
 #
 # Why this exists: sandboxed sessions routinely have no pwsh and no reachable
 # PowerShell Gallery, which makes `Install-Module Pester` fail. Working that out
@@ -13,6 +13,9 @@
 #
 # Override install locations (used by the self-test):
 #   PWSH_PREFIX=/opt/pwsh  PS_MODULE_DIR=~/.local/share/powershell/Modules
+#
+# On macOS /opt is not writable without sudo, so expect to pass
+# PWSH_PREFIX="$HOME/.local/pwsh" unless you are running this with sudo.
 #
 # Exit codes: 0 ready, 1 install failed, 2 bad usage, 3 --check found something missing.
 
@@ -36,15 +39,43 @@ have_pwsh()   { command -v pwsh >/dev/null 2>&1 || [ -x "$PWSH_PREFIX/pwsh" ]; }
 pwsh_bin()    { command -v pwsh >/dev/null 2>&1 && { command -v pwsh; return; }; echo "$PWSH_PREFIX/pwsh"; }
 have_pester() { [ -f "$PS_MODULE_DIR/Pester/$PESTER_VERSION/Pester.psd1" ]; }
 
+# The release asset to fetch, from the machine we are actually on. This used to be
+# hardcoded to linux-x64, which on an Apple Silicon Mac is wrong twice over - and
+# the validate-change skill points macOS users straight at this script.
+pwsh_rid() {
+    local os arch
+    os="$(uname -s)"
+    arch="$(uname -m)"
+    case "$os" in
+        Linux)  os=linux ;;
+        Darwin) os=osx ;;
+        *)      echo "unsupported operating system: $os" >&2; return 1 ;;
+    esac
+    case "$arch" in
+        x86_64|amd64)  arch=x64 ;;
+        aarch64|arm64) arch=arm64 ;;
+        *)             echo "unsupported architecture: $arch" >&2; return 1 ;;
+    esac
+    printf '%s-%s\n' "$os" "$arch"
+}
+
 install_pwsh() {
     log "installing PowerShell $PWSH_VERSION into $PWSH_PREFIX"
-    local url tarball
-    url="https://github.com/PowerShell/PowerShell/releases/download/v${PWSH_VERSION}/powershell-${PWSH_VERSION}-linux-x64.tar.gz"
+    local url tarball rid
+    rid="$(pwsh_rid)" || return 1
+    log "platform: $rid"
+    url="https://github.com/PowerShell/PowerShell/releases/download/v${PWSH_VERSION}/powershell-${PWSH_VERSION}-${rid}.tar.gz"
     tarball="$(mktemp -t pwsh-XXXXXX.tar.gz)"
     trap 'rm -f "$tarball"' RETURN
     # --fail so an HTML error page is never mistaken for a tarball.
     curl -sSL --fail --max-time 300 -o "$tarball" "$url"
-    mkdir -p "$PWSH_PREFIX"
+    # /opt is not writable by an ordinary user on macOS, and the raw mkdir error
+    # that follows says nothing useful about the way out.
+    if ! mkdir -p "$PWSH_PREFIX" 2>/dev/null; then
+        echo "cannot create $PWSH_PREFIX - run with sudo, or set PWSH_PREFIX to somewhere writable:" >&2
+        echo "  PWSH_PREFIX=\"\$HOME/.local/pwsh\" $0" >&2
+        return 1
+    fi
     tar -xzf "$tarball" -C "$PWSH_PREFIX"
     chmod +x "$PWSH_PREFIX/pwsh"
     # Link into PATH only when nothing is there yet. Never clobber an existing pwsh:

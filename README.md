@@ -648,13 +648,18 @@ The two jobs that publish something stay manual — they are gated on the event 
 
 | Task | Trigger | Runs on | Does |
 |---|---|---|---|
-| `validate` | push, PR, manual | windows-latest | The 168-test Pester suite, then PSScriptAnalyzer, AST parse of every script, JSON validity, lockfile consistency, and hygiene checks (no committed mod files, no leaked API key, `config.json` untracked). |
-| `cross-platform` | push, PR | ubuntu-latest | The validator on Linux, the `Invoke-Tests.ps1` exit-code contract, and shellcheck on the setup script — the checks a Windows-only job cannot see. |
+| `validate` | push, PR, manual | windows-latest | The Pester suite under pwsh 7, then PSScriptAnalyzer, AST parse of every script, JSON validity, lockfile consistency, and hygiene checks (no committed mod files, no leaked API key, `config.json` untracked). |
+| `windows-powershell` | push, PR | windows-latest | The same suite under **Windows PowerShell 5.1**, the engine that ships with Windows. It asserts it really is Desktop edition first, so it cannot quietly become a copy of the job above. |
+| `cross-platform` | push, PR | ubuntu-latest | The validator on Linux, the `Invoke-Tests.ps1` exit-code contract, the release package build, and shellcheck on the setup script — the checks a Windows-only job cannot see. |
+| `macos` | push, PR | macos-latest | The same validator and exit-code contract on macOS, which is arm64. The README and the scripts have always claimed macOS works; this is what makes that a checked statement. |
 | `release` | manual only | windows-latest | Validate, package the allow-listed files, publish a GitHub Release with a SHA-256 and a generated mod table. |
 | `refresh-lock` | manual only | ubuntu-latest | Query the Nexus API for each mapped mod's current version and open a PR with the diff. Metadata only — needs the `NEXUS_API_KEY` secret; a free account is enough. |
+| `prune-branches` | manual only | ubuntu-latest | Delete branches whose work is already on `main`, each against an explicit rule. Dry run unless `apply` is ticked. |
 
-Both manual tasks wait on `validate` **and** `cross-platform`, so a red check on either
-platform stops a release or a lockfile PR before it starts.
+The test count is deliberately not quoted here. It has been wrong twice.
+
+Both publishing tasks wait on `validate`, `cross-platform` **and** `macos`, so a red check
+on any platform stops a release or a lockfile PR before it starts.
 
 Pushing again while a run is in flight cancels the older one (`concurrency`), so only the
 newest commit on a branch is checked. Manual runs are never cancelled — a half-finished

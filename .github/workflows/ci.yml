@@ -238,9 +238,9 @@ jobs:
   # ---------------------------------------------------------------------------
   release:
     name: Build and publish release
-    # Both checks, not just the Windows one: publishing is irreversible, so a red
-    # Linux guard should stop it too.
-    needs: [validate, cross-platform]
+    # Every guard, not just the Windows one: publishing is irreversible, so a red
+    # Linux or macOS run should stop it too.
+    needs: [validate, cross-platform, macos]
     if: github.event_name == 'workflow_dispatch' && inputs.task == 'release'
     runs-on: windows-latest
     timeout-minutes: 20
@@ -330,7 +330,7 @@ jobs:
 
   refresh-lock:
     name: Refresh lockfile from Nexus
-    needs: [validate, cross-platform]
+    needs: [validate, cross-platform, macos]
     if: github.event_name == 'workflow_dispatch' && inputs.task == 'refresh-lock'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -416,6 +416,86 @@ jobs:
       - name: Nothing to do
         if: env.CHANGED == '0'
         run: echo "All locked versions already match Nexus."
+
+  # ---------------------------------------------------------------------------
+  # macOS. The README, CLAUDE.md, Invoke-Tests.ps1's own help and two skills all
+  # say the validator runs on macOS and that the suite refuses itself there. None
+  # of that was ever executed on a Mac - the Linux job was standing in for both
+  # platforms, which is the same shape of gap as pwsh 7 standing in for 5.1.
+  #
+  # It also covers the one path where the two genuinely differ: macOS runners are
+  # arm64, so anything that assumes an x86_64 download is wrong here and nowhere
+  # else. setup-test-env.sh hardcoded linux-x64 until this job existed.
+  # ---------------------------------------------------------------------------
+  macos:
+    name: Validator and guard on macOS
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Report the platform
+        shell: bash
+        run: |
+          echo "uname -s : $(uname -s)"
+          echo "uname -m : $(uname -m)"
+          echo "pwsh     : $(pwsh -NoProfile -c '$PSVersionTable.PSVersion.ToString()')"
+
+      - name: Validator runs clean on macOS
+        shell: pwsh
+        run: ./Test-Modpack.ps1
+
+      # The same exit-code contract the Linux job asserts. 3 means "nothing failed,
+      # but the suite was skipped", and a caller must not be able to read that as a
+      # pass. -Path Lock is platform-independent and must genuinely run.
+      - name: Invoke-Tests refuses the suite and reports it as unverified
+        shell: bash
+        run: |
+          check() {
+            local want=$1 label=$2; shift 2
+            set +e
+            "$@" >/tmp/invoke-tests.log 2>&1
+            local got=$?
+            set -e
+            if [ "$got" -ne "$want" ]; then
+              echo "::error::$label - expected exit $want, got $got"
+              tail -n 20 /tmp/invoke-tests.log
+              return 1
+            fi
+            echo "ok: $label -> $got"
+          }
+
+          check 3 "validator passed, suite skipped" \
+                pwsh -NoProfile -File ./Invoke-Tests.ps1
+          check 0 "-AllowNonWindows genuinely runs Pester" \
+                pwsh -NoProfile -File ./Invoke-Tests.ps1 -AllowNonWindows -Path Lock -Output None -SkipValidator
+
+      # The packaging must not be Linux-shaped either.
+      - name: The release package still builds
+        shell: pwsh
+        run: ./New-ReleasePackage.ps1 -Destination "$env:RUNNER_TEMP/pkg" -NoArchive -Confirm:$false
+
+      # The setup script picks its download from uname. This runner is arm64 Darwin,
+      # which is the combination that was silently wrong before.
+      - name: setup-test-env resolves the right macOS build
+        shell: bash
+        run: |
+          script=.claude/skills/validate-change/scripts/setup-test-env.sh
+          bash -n "$script"
+          # shellcheck is not on the macOS image by default; the Linux job lints it.
+          rid=$(. <(sed -n '/^pwsh_rid()/,/^}/p' "$script"); pwsh_rid)
+          echo "resolved rid: $rid"
+          case "$rid" in
+            osx-arm64|osx-x64) ;;
+            *) echo "::error::expected an osx build on macOS, got '$rid'"; exit 1 ;;
+          esac
+          url="https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/powershell-7.4.6-${rid}.tar.gz"
+          code=$(curl -sS -o /dev/null -w '%{http_code}' -L --max-time 60 "$url")
+          [ "$code" = "200" ] || { echo "::error::$url returned $code"; exit 1; }
+          echo "release asset for $rid exists"
 
   # ---------------------------------------------------------------------------
   # Delete branches whose work is already on the default branch.
