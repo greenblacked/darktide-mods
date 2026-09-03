@@ -69,6 +69,17 @@ nothing had ever taken that branch. It pays for itself: the validator was splitt
 was quietly reading the wrong thing. If you add syntax to a script that runs anywhere,
 this is the job that will tell you it is 7-only.
 
+**Never `2>&1` a native command.** Under 5.1 with `$ErrorActionPreference = 'Stop'`,
+merging a native stderr into the success stream turns it into a *terminating error* even
+when the command exited 0. pwsh 7 does not, so this is invisible everywhere else. The
+scripts already handle it by setting the preference to `Continue` around the call
+(`Test-Modpack.ps1`, `Install-DarktideLoader.ps1`); do the same, or redirect to `$null`
+and read `$LASTEXITCODE`. A test file missed this and only failed on a `pull_request`
+run, because that checkout is a detached merge ref and `git clone` then prints the
+detached-HEAD advice to stderr — `git -c advice.detachedHead=false` removes the trigger
+at source. The same commit was green on the push event, so if a job passes on one event
+and fails on the other, look here before assuming a flake.
+
 The `release` and `refresh-lock` jobs are `workflow_dispatch`-gated and will show as
 skipped on a normal push. That is correct, not a failure.
 
