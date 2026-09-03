@@ -21,12 +21,18 @@ on:
           - validate
           - release
           - refresh-lock
+          - prune-branches
       version:
         description: 'Release version, e.g. 1.2.0 (release only; leave blank to derive from the date)'
         required: false
         type: string
       prerelease:
         description: 'Mark the release as a pre-release'
+        required: false
+        default: false
+        type: boolean
+      apply:
+        description: 'prune-branches only: actually delete. Left off, it only reports what it would delete.'
         required: false
         default: false
         type: boolean
@@ -423,3 +429,124 @@ jobs:
       - name: Nothing to do
         if: env.CHANGED == '0'
         run: echo "All locked versions already match Nexus."
+
+  # ---------------------------------------------------------------------------
+  # Delete branches whose work is already on the default branch.
+  #
+  # This exists because a branch delete cannot always be pushed from a working
+  # environment - some network paths drop the delete refspec silently, and a
+  # dropped delete reports "Everything up-to-date", which looks like success.
+  # Running it here uses the repository's own token and leaves a run log.
+  #
+  # It never deletes on the strength of a name. Each branch has to prove itself
+  # against one of three rules, and anything that proves nothing is reported and
+  # left alone. Dry run unless 'apply' is ticked.
+  # ---------------------------------------------------------------------------
+  prune-branches:
+    name: Prune branches already merged into main
+    if: github.event_name == 'workflow_dispatch' && inputs.task == 'prune-branches'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Classify and prune
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          APPLY: ${{ inputs.apply }}
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin '+refs/heads/*:refs/remotes/origin/*'
+
+          base="origin/$DEFAULT_BRANCH"
+          deleted=0; kept=0
+
+          for ref in $(git for-each-ref --format='%(refname:short)' refs/remotes/origin | grep -v '^origin/HEAD$'); do
+            b="${ref#origin/}"
+
+            # Never the default branch, whatever any rule below might say.
+            if [ "$b" = "$DEFAULT_BRANCH" ]; then continue; fi
+
+            reason=""
+            # 1. Every commit is already reachable from the default branch.
+            if git merge-base --is-ancestor "$ref" "$base"; then
+              reason="fully merged"
+            else
+              mb=$(git merge-base "$base" "$ref")
+              files=$(git diff --name-only "$mb" "$ref")
+              if [ -z "$files" ]; then
+                reason="changes nothing"
+              else
+                # 2. Every file it touched is byte-identical to the default branch.
+                identical=yes
+                while IFS= read -r f; do
+                  [ -z "$f" ] && continue
+                  git diff --quiet "$base" "$ref" -- "$f" || identical=no
+                done <<< "$files"
+
+                if [ "$identical" = yes ]; then
+                  reason="squash-merged; every file it touched matches $DEFAULT_BRANCH"
+                else
+                  # 3. Every line it ADDED is already present in the default branch.
+                  #    Covers a branch whose files moved on after it was merged.
+                  #
+                  #    Both sides are stripped of leading whitespace before the
+                  #    whole-line compare: matching a stripped line with grep -x
+                  #    against an indented file can never succeed, which would turn
+                  #    this rule off silently rather than making it strict.
+                  #
+                  #    The haystack is built once into a file, and the match below is
+                  #    NOT a pipeline. 'git show | grep -q' looks equivalent and is
+                  #    not: grep -q exits on the first hit, git show takes SIGPIPE and
+                  #    returns 141, and under 'set -o pipefail' the pipeline then
+                  #    reports failure for a line that was found. That reads as "this
+                  #    branch still has unmerged work" and keeps a branch forever.
+                  haystack=$(mktemp)
+                  while IFS= read -r f; do
+                    [ -z "$f" ] && continue
+                    git show "$base:$f" 2>/dev/null | sed 's/^[[:space:]]*//' >> "$haystack" || true
+                  done <<< "$files"
+
+                  missing=0
+                  while IFS= read -r line; do
+                    [ -z "$line" ] && continue
+                    grep -qxF -- "$line" "$haystack" || missing=$((missing + 1))
+                  done <<< "$(git diff "$mb" "$ref" | sed -n 's/^+//p' | grep -v '^++' | sed 's/^[[:space:]]*//' | sort -u)"
+                  rm -f "$haystack"
+
+                  if [ "$missing" -eq 0 ]; then
+                    reason="every line it added is already on $DEFAULT_BRANCH"
+                  fi
+                fi
+              fi
+            fi
+
+            if [ -z "$reason" ]; then
+              echo "KEEP    $b - carries work that is not on $DEFAULT_BRANCH"
+              kept=$((kept + 1))
+              continue
+            fi
+
+            if [ "$APPLY" != "true" ]; then
+              echo "WOULD DELETE  $b - $reason"
+            else
+              echo "DELETE  $b - $reason"
+              gh api -X DELETE "repos/$REPO/git/refs/heads/$b"
+            fi
+            deleted=$((deleted + 1))
+          done
+
+          echo ""
+          if [ "$APPLY" != "true" ]; then
+            echo "Dry run. $deleted branch(es) would be deleted, $kept kept. Re-run with 'apply' ticked."
+          else
+            echo "Deleted $deleted branch(es), kept $kept."
+          fi
