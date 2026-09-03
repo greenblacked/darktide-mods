@@ -10,6 +10,7 @@
 # Usage:
 #   ./setup-test-env.sh              # install what is missing, then report
 #   ./setup-test-env.sh --check      # report only, change nothing
+#   ./setup-test-env.sh --rid        # print the PowerShell build for this machine
 #
 # Override install locations (used by the self-test):
 #   PWSH_PREFIX=/opt/pwsh  PS_MODULE_DIR=~/.local/share/powershell/Modules
@@ -17,7 +18,8 @@
 # On macOS /opt is not writable without sudo, so expect to pass
 # PWSH_PREFIX="$HOME/.local/pwsh" unless you are running this with sudo.
 #
-# Exit codes: 0 ready, 1 install failed, 2 bad usage, 3 --check found something missing.
+# Exit codes: 0 ready, 1 install failed (or --rid on an unsupported platform),
+# 2 bad usage, 3 --check found something missing.
 
 set -euo pipefail
 
@@ -28,10 +30,12 @@ PS_MODULE_DIR="${PS_MODULE_DIR:-$HOME/.local/share/powershell/Modules}"
 PESTER_SRC="${PESTER_SRC:-/tmp/pester-src}"
 
 CHECK_ONLY=0
+PRINT_RID=0
 case "${1:-}" in
     --check) CHECK_ONLY=1 ;;
+    --rid)   PRINT_RID=1 ;;
     "")      ;;
-    *)       echo "usage: $0 [--check]" >&2; exit 2 ;;
+    *)       echo "usage: $0 [--check | --rid]" >&2; exit 2 ;;
 esac
 
 log()  { printf '[%s] %s\n' "$(date -u +%H:%M:%S)" "$*" >&2; }
@@ -58,6 +62,14 @@ pwsh_rid() {
     esac
     printf '%s-%s\n' "$os" "$arch"
 }
+
+# Answering for itself beats being parsed. The macOS job used to pull this function
+# out with sed and source it, which produced nothing on that runner and failed with
+# 'pwsh_rid: command not found' - a broken test rather than a broken script.
+if [ "$PRINT_RID" -eq 1 ]; then
+    pwsh_rid
+    exit $?
+fi
 
 install_pwsh() {
     log "installing PowerShell $PWSH_VERSION into $PWSH_PREFIX"

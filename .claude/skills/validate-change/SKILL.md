@@ -137,6 +137,8 @@ environments). It is idempotent, so re-running it is safe and cheap. Exit codes:
 1 install failed, 2 bad usage, 3 `--check` found something missing.
 
 It picks its download from `uname`, so it works on Linux and macOS and on x64 and arm64.
+`--rid` prints the build it would fetch, which is how CI asserts it without parsing the
+script - both platform jobs check they get their own.
 On macOS `/opt` is not writable without `sudo`, so pass a prefix you own:
 
 ```bash

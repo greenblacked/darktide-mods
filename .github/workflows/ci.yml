@@ -230,6 +230,15 @@ jobs:
           bash -n "$script"
           shellcheck "$script"
           "$script" --check || [ $? -eq 3 ]   # 3 = tools absent, which is expected here
+
+          # The mirror of the macOS assertion. Between them, a change that resolves
+          # every platform to the same download is caught on one side or the other.
+          rid=$("$script" --rid)
+          echo "resolved rid: $rid"
+          case "$rid" in
+            linux-x64|linux-arm64) ;;
+            *) echo "::error::expected a linux build here, got '$rid'"; exit 1 ;;
+          esac
         shell: bash
 
   # ---------------------------------------------------------------------------
@@ -480,13 +489,17 @@ jobs:
 
       # The setup script picks its download from uname. This runner is arm64 Darwin,
       # which is the combination that was silently wrong before.
+      #
+      # It is asked, not parsed. The first version of this step pulled the function
+      # out with sed and sourced it; that produced nothing on this runner and failed
+      # with 'command not found' - a broken test rather than a broken script.
       - name: setup-test-env resolves the right macOS build
         shell: bash
         run: |
           script=.claude/skills/validate-change/scripts/setup-test-env.sh
           bash -n "$script"
           # shellcheck is not on the macOS image by default; the Linux job lints it.
-          rid=$(. <(sed -n '/^pwsh_rid()/,/^}/p' "$script"); pwsh_rid)
+          rid=$("$script" --rid)
           echo "resolved rid: $rid"
           case "$rid" in
             osx-arm64|osx-x64) ;;
