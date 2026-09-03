@@ -1,8 +1,9 @@
 # Working notes for coding agents
 
 Read `.claude/skills/` first. `validate-change` covers how to verify a change,
-`tooling-invariants` covers what a change must not break, and `cut-a-release`
-covers publishing. This file holds only the conventions that sit above those.
+`tooling-invariants` what a change must not break, `cut-a-release` publishing, and
+`publish-check` the sweeps to run around anything that becomes public. This file
+holds only the conventions that sit above those.
 
 ## Attribution
 
