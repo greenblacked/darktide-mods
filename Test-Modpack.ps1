@@ -365,6 +365,47 @@ Test-Case 'commits are authored by a person, not an agent' {
     } finally { Pop-Location }
 }
 
+Test-Case 'exactly two identical Assert-GameNotRunning copies' {
+    $found = New-Object System.Collections.Generic.List[object]
+    foreach ($s in $scripts) {
+        $parseErrors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+            $s.FullName, [ref]$null, [ref]$parseErrors)
+        foreach ($fn in $ast.FindAll({
+                param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+                          $n.Name -eq 'Assert-GameNotRunning'
+            }, $true)) {
+            $found.Add([pscustomobject]@{ File = $s.Name; Body = $fn.Body.Extent.Text })
+        }
+    }
+    if ($found.Count -ne 2) {
+        throw "expected exactly two Assert-GameNotRunning copies, found $($found.Count) in $($found.File -join ', ')"
+    }
+    $norm = {
+        param([string] $t)
+        ($t -replace '(?m)^\s*#\s*Twin of the copy in \S+ - keep the two identical\.\s*$', '').Trim()
+    }
+    $a = & $norm $found[0].Body
+    $b = & $norm $found[1].Body
+    if ($a -ne $b) {
+        throw "Assert-GameNotRunning in $($found[0].File) and $($found[1].File) have drifted"
+    }
+}
+
+Test-Case 'release allow-list files exist' {
+    $ci = Join-Path $root '.github/workflows/ci.yml'
+    if (-not (Test-Path -LiteralPath $ci)) { throw '.github/workflows/ci.yml is missing' }
+    $yml = Get-Content -LiteralPath $ci -Raw -Encoding UTF8
+    $m = [regex]::Match($yml, '(?s)\$include = @\((.*?)\)')
+    if (-not $m.Success) { throw 'could not find the release $include allow-list in ci.yml' }
+    $listed = [regex]::Matches($m.Groups[1].Value, "'([^']+)'") | ForEach-Object { $_.Groups[1].Value }
+    if ($listed.Count -lt 5) { throw "allow-list parsed too small ($($listed.Count) entries)" }
+    # The stage step also copies these two outside the array.
+    $listed = @($listed) + @('Invoke-Tests.ps1', 'tests')
+    $missing = @($listed | Where-Object { -not (Test-Path -LiteralPath (Join-Path $root $_) ) })
+    if ($missing) { throw "release allow-list path missing: $($missing -join ', ')" }
+}
+
 Test-Case '.gitignore covers the important things' {
     $gi = Join-Path $root '.gitignore'
     if (-not (Test-Path -LiteralPath $gi)) { throw '.gitignore is missing' }

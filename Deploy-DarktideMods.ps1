@@ -32,6 +32,17 @@
     How many deploy backup zips to keep under DeployBackupRoot. Older archives are
     pruned after a successful backup. Default 10; 0 keeps everything.
 
+.PARAMETER Restore
+    Unpack a deploy backup zip into the game mods folder instead of syncing from
+    staging. Writes nothing without -Apply; the dry run lists the available sets.
+
+.PARAMETER BackupSet
+    Name (or unique substring) of the gamemods-*.zip to restore. Newest by write
+    time if omitted.
+
+.PARAMETER KeepBackups
+    How many gamemods-*.zip archives to keep. Default 10. 0 keeps all.
+
 .EXAMPLE
     .\Deploy-DarktideMods.ps1 -Apply -WhatIf
     Shows exactly what would be copied.
@@ -39,6 +50,14 @@
 .EXAMPLE
     .\Deploy-DarktideMods.ps1 -Apply
     Backs up the live mods folder, then syncs staging into it.
+
+.EXAMPLE
+    .\Deploy-DarktideMods.ps1 -Restore
+    List the newest game-folder backup. Nothing is written.
+
+.EXAMPLE
+    .\Deploy-DarktideMods.ps1 -Restore -Apply
+    Replace the game mods folder with the newest deploy backup.
 
 .NOTES
     After any Darktide patch, Steam replaces the bundle database and the mod loader
@@ -59,6 +78,8 @@ param(
     [switch] $InstallLoader,
     [switch] $RunToggle,
     [switch] $Force,
+    [switch] $Restore,
+    [string] $BackupSet,
 
     [ValidateRange(0, 1000)]
     [int] $KeepBackups = 10
@@ -69,6 +90,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+Add-Type -AssemblyName System.IO.Compression -ErrorAction SilentlyContinue
 
 function Write-Step { param([string]$m) Write-Host $m -ForegroundColor Cyan }
 function Write-Ok   { param([string]$m) Write-Host $m -ForegroundColor Green }
@@ -172,6 +194,50 @@ function Assert-GameNotRunning {
     }
 }
 
+function Expand-BackupArchive {
+    <#
+        Extracts every entry into $Destination, refusing anything that resolves
+        outside it. Zip entry names are attacker-controlled, so both the textual
+        form and the resolved path are checked. Copied from Import-DarktideLoadout.ps1;
+        not shared, so each script still runs on its own.
+    #>
+    param(
+        [Parameter(Mandatory)] [string] $ZipPath,
+        [Parameter(Mandatory)] [string] $Destination
+    )
+
+    $root = [System.IO.Path]::GetFullPath($Destination).TrimEnd('\') + '\'
+    $zip  = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+    try {
+        foreach ($entry in $zip.Entries) {
+            # Normalise separators first: a zip may legally use '\', and a
+            # backslash-only traversal would slip past a '/'-only check.
+            $rel = $entry.FullName -replace '\\', '/'
+            if (-not $rel) { continue }
+            if ($rel -match '(^|/)\.\.(/|$)' -or $rel -match '^([A-Za-z]:|/)') {
+                throw "Archive contains an unsafe path: '$($entry.FullName)'"
+            }
+
+            $target = Join-Path $Destination ($rel -replace '/', '\')
+            $full   = [System.IO.Path]::GetFullPath($target)
+            if (-not $full.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) {
+                throw "Archive entry '$($entry.FullName)' resolves outside the destination."
+            }
+
+            if ($rel.EndsWith('/')) {
+                # CreateDirectory, not New-Item -Path: 5.1 has no -LiteralPath on New-Item,
+                # and -Path globs on [] in folder names.
+                [void][System.IO.Directory]::CreateDirectory($target)
+                continue
+            }
+
+            $parent = Split-Path -Parent $target
+            if ($parent) { [void][System.IO.Directory]::CreateDirectory($parent) }
+            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $target, $true)
+        }
+    } finally { $zip.Dispose() }
+}
+
 function Get-SyncPendingCode {
     <#
         Runs the same robocopy in list-only mode (/L) so we can tell whether a deploy
@@ -206,11 +272,73 @@ function Get-SyncPendingCode {
 
 # ----------------------------------------------------------------------------------
 
-$staging = Assert-ValidStaging  -Path $cfg.ModsRoot
-$game    = Assert-ValidGamePath -Path $cfg.GamePath
+$game     = Assert-ValidGamePath -Path $cfg.GamePath
 $gameMods = Join-Path $game 'mods'
 
-if (-not $cfg.DeployBackupRoot) { $cfg.DeployBackupRoot = Join-Path (Split-Path -Parent $staging) 'deploy_backups' }
+if (-not $cfg.DeployBackupRoot) {
+    if (-not $cfg.ModsRoot) {
+        throw "DeployBackupRoot is not set. Put it in config.json, or set ModsRoot so it can default to the parent folder."
+    }
+    $cfg.DeployBackupRoot = Join-Path (Split-Path -Parent $cfg.ModsRoot) 'deploy_backups'
+}
+
+if ($Restore) {
+    Write-Step '=== Darktide mod restore ==='
+    Write-Host  "Game    : $game"
+    Write-Host  "Target  : $gameMods"
+    Write-Host  "Backups : $($cfg.DeployBackupRoot)"
+    Write-Host  "Mode    : $(if ($Apply) { 'APPLY' } else { 'DRY RUN (pass -Apply to write)' })"
+    Write-Host  ''
+
+    if (-not (Test-Path -LiteralPath $cfg.DeployBackupRoot)) {
+        throw "No deploy backups at '$($cfg.DeployBackupRoot)'."
+    }
+    # Newest first by write time, not by name: a same-second collision gets a
+    # '-1' suffix that would sort before the un-suffixed name.
+    $zips = @(Get-ChildItem -LiteralPath $cfg.DeployBackupRoot -File |
+              Where-Object { $_.Extension -eq '.zip' } | Sort-Object LastWriteTime -Descending)
+    if (-not $zips) { throw "No deploy backups found in '$($cfg.DeployBackupRoot)'." }
+
+    $zip = if ($BackupSet) {
+        $hit = @($zips | Where-Object { $_.Name -like "*$BackupSet*" })
+        if (-not $hit) { throw "No deploy backup matching '$BackupSet'." }
+        $hit[0]
+    } else { $zips[0] }
+
+    Write-Host "  backup : $($zip.Name)"
+    Write-Host "  target : $gameMods"
+    Write-Host ''
+    Write-Host '  available backups:'
+    $zips | Select-Object -First 10 | ForEach-Object { Write-Host "    $($_.Name)" }
+
+    if (-not $Apply) {
+        Write-Warn 'Dry run complete. Nothing was written. Re-run with -Restore -Apply.'
+        return
+    }
+
+    Assert-GameNotRunning
+
+    $stage = "$gameMods.restoring"
+    if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
+    try {
+        [void][System.IO.Directory]::CreateDirectory($stage)
+        Expand-BackupArchive -ZipPath $zip.FullName -Destination $stage
+    } catch {
+        Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
+        throw
+    }
+
+    if ($PSCmdlet.ShouldProcess($gameMods, "Restore from $($zip.Name)")) {
+        if (Test-Path -LiteralPath $gameMods) { Remove-Item -LiteralPath $gameMods -Recurse -Force }
+        Move-Item -LiteralPath $stage -Destination $gameMods -Force
+        Write-Ok "  restored from $($zip.Name)"
+    } else {
+        Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    return
+}
+
+$staging = Assert-ValidStaging  -Path $cfg.ModsRoot
 
 Write-Step '=== Darktide mod deploy ==='
 Write-Host  "Staging : $staging"

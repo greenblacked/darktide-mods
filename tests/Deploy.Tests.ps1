@@ -273,4 +273,45 @@ Describe 'Deploy-DarktideMods' {
                 Should -Throw -ExpectedMessage '*No mod loader payload found*'
         }
     }
+
+    Context 'restore from a deploy backup' {
+
+        BeforeEach {
+            & $script:Deployer -ConfigPath $script:Config -Apply -Confirm:$false *>&1 | Out-Null
+            & $script:Deployer -ConfigPath $script:Config -Apply -Force -Confirm:$false *>&1 | Out-Null
+        }
+
+        It 'writes nothing without -Apply' {
+            $before = Get-TreeFingerprint -Path $script:GameMods
+
+            $out = & $script:Deployer -ConfigPath $script:Config -Restore *>&1 | Out-String
+
+            $out | Should -Match 'Dry run'
+            Get-TreeFingerprint -Path $script:GameMods | Should -Be $before
+        }
+
+        It 'restores the newest zip when -Apply is given' {
+            $marker = Join-Path $script:GameMods 'alpha_mod\alpha_mod.mod'
+            Remove-Item -LiteralPath $marker -Force
+
+            & $script:Deployer -ConfigPath $script:Config -Restore -Apply -Confirm:$false *>&1 | Out-Null
+
+            Test-Path -LiteralPath $marker | Should -BeTrue
+        }
+
+        It 'rejects a traversal backup without deleting mods' {
+            $hostile = Join-Path $script:BackupRoot 'gamemods-hostile.zip'
+            $null = New-TestZip -Path $hostile -Entries @{
+                'alpha_mod/alpha_mod.mod' = 'return {}'
+                '../escaped.txt'          = 'pwned'
+            }
+
+            { & $script:Deployer -ConfigPath $script:Config -Restore -Apply -BackupSet 'hostile' -Confirm:$false } |
+                Should -Throw -ExpectedMessage '*unsafe path*'
+
+            Test-Path (Join-Path $script:GameMods 'alpha_mod\alpha_mod.mod') | Should -BeTrue
+            Test-Path (Join-Path $script:Root 'escaped.txt') | Should -BeFalse
+            Test-Path -LiteralPath "$($script:GameMods).restoring" | Should -BeFalse
+        }
+    }
 }

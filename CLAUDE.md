@@ -23,7 +23,8 @@ and `commits are authored by a person, not an agent` (the author and committer
 fields, which is where a bot reached the contributors list while every message
 stayed clean). CI checks out with `fetch-depth: 0` so all three see the whole
 history. Pull request bodies stay a matter of care — nothing in the repository
-can see what GitHub stores.
+can see what GitHub stores, so sweep them with the `publish-check` skill after
+anything is published.
 
 Set `user.name` and `user.email` to the repository owner before committing. A
 tool that quietly reconfigures them is the cheap version of this problem; the
@@ -32,6 +33,14 @@ expensive version is a history rewrite and a force-push across every branch.
 Naming a model in prose is not attribution. The vendored `sepia` skill
 catalogues model fingerprints by name, and the `.claude/skills/` path is fixed
 by the tooling; neither is a credit line.
+
+## What the scripts must keep doing
+
+`rollback` writes nothing without `-Apply`. `restore` is
+`Deploy-DarktideMods.ps1 -Restore`, not a third process check in the dispatcher.
+`-KeepBackups` (default 10) bounds deploy zips, staging backup-set folders, and
+loader backup folders. `Assert-GameNotRunning` exists in exactly two copies
+(Deploy and Update); the validator fails if they drift.
 
 ## Reporting
 
