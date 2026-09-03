@@ -36,7 +36,7 @@ and this setup runs without one. Treat it as informational, not as a task.
 .\Invoke-Tests.ps1 -Output Detailed   # per-test output
 ```
 
-Roughly 150 tests across 8 files (153 as this was written), all sandboxed under
+Roughly 170 tests across 9 files (168 as this was written), all sandboxed under
 `$env:TEMP`. They build a fake game folder, a fake staging tree and real zip archives,
 and touch nothing real and nothing networked. Safe to run at any time.
 
@@ -68,6 +68,17 @@ nothing had ever taken that branch. It pays for itself: the validator was splitt
 `` `u{001e} ``, an escape PowerShell 7 added and 5.1 parses as a literal, so a check
 was quietly reading the wrong thing. If you add syntax to a script that runs anywhere,
 this is the job that will tell you it is 7-only.
+
+**Never `2>&1` a native command.** Under 5.1 with `$ErrorActionPreference = 'Stop'`,
+merging a native stderr into the success stream turns it into a *terminating error* even
+when the command exited 0. pwsh 7 does not, so this is invisible everywhere else. The
+scripts already handle it by setting the preference to `Continue` around the call
+(`Test-Modpack.ps1`, `Install-DarktideLoader.ps1`); do the same, or redirect to `$null`
+and read `$LASTEXITCODE`. A test file missed this and only failed on a `pull_request`
+run, because that checkout is a detached merge ref and `git clone` then prints the
+detached-HEAD advice to stderr — `git -c advice.detachedHead=false` removes the trigger
+at source. The same commit was green on the push event, so if a job passes on one event
+and fails on the other, look here before assuming a flake.
 
 The `release` and `refresh-lock` jobs are `workflow_dispatch`-gated and will show as
 skipped on a normal push. That is correct, not a failure.
@@ -134,6 +145,26 @@ Say which gate ran and on what. "The validator passes; the Pester suite needs Wi
 I pushed the branch and CI is green" is a true and useful statement. "Tests pass" after
 running only the validator is not. It skips the whole suite, which is the part that
 would catch the class of bug the validator cannot see.
+
+## Linux Docker, matching the ubuntu job
+
+When you are not on Windows, the local command that matches the CI `cross-platform`
+job is:
+
+```bash
+./run-tests-docker.sh
+```
+
+It builds `Dockerfile.test` and, in a Linux PowerShell container, runs:
+
+1. `Test-Modpack.ps1` (including the twin-body and allow-list checks)
+2. `Invoke-Tests.ps1` — expect exit **3**
+3. `Invoke-Tests.ps1 -SkipValidator` — expect exit **3**
+4. `Invoke-Tests.ps1 -AllowNonWindows -Path Lock -SkipValidator` — expect exit **0**
+
+Exit 2 means docker is not on PATH. `./run-tests-docker.sh full` is the explicit
+"expect ~70 environmental failures" mode. Do not treat it as a pass/fail gate, and
+do not report "tests pass" from a Docker run or from `Invoke-Tests.ps1` exit 3.
 
 If CI is red, read the failing step's log before theorising. The suite names the failing
 `Describe`/`Context`/`It` path, which maps directly onto a file in `tests/`.

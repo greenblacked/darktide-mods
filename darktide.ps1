@@ -21,7 +21,8 @@
         .\darktide.ps1 import     restore a loadout zip and deploy it
 
     Everything is a dry run until you add -Apply, except 'status' and 'check'
-    which never write anything. That includes rollback and restore.
+    which never write anything, and 'lock' which always writes the manifest.
+    The dry-run default includes rollback and restore.
 
 .PARAMETER Verb
     Which action to run. See above.
@@ -273,102 +274,7 @@ switch ($Verb) {
 
     'restore' {
         Write-Head "Restoring the game mods folder from a deploy backup$(if (-not $Apply) { ' (dry run)' })"
-        if (-not $deployBk -or -not (Test-Path -LiteralPath $deployBk)) {
-            throw "No deploy backups at '$deployBk'."
-        }
-        if (-not $gamePath) { throw 'GamePath is not set in config.json.' }
-
-        # Same shape of checks Deploy-DarktideMods.ps1 uses before writing. Restore
-        # used to skip them and extract with no zip-slip guard.
-        if (-not (Test-Path -LiteralPath $gamePath -PathType Container)) {
-            throw "Game folder '$gamePath' does not exist. Check GamePath in config.json."
-        }
-        $gameFull = (Resolve-Path -LiteralPath $gamePath).Path.TrimEnd('\')
-        if ($gameFull -match '^[A-Za-z]:$' -or $gameFull -match '^[A-Za-z]:\\?$') {
-            throw "GamePath '$gameFull' is a drive root. Refusing."
-        }
-        if (($gameFull -split '\\').Count -lt 3) {
-            throw "GamePath '$gameFull' is suspiciously shallow. Point it at the Darktide install folder."
-        }
-        $markers = @(
-            (Join-Path $gameFull 'binaries\Darktide.exe'),
-            (Join-Path $gameFull 'binaries_dx12\Darktide.exe'),
-            (Join-Path $gameFull 'bundle\bundle_database.data'),
-            (Join-Path $gameFull 'launcher\Launcher.exe')
-        )
-        if (-not (@($markers | Where-Object { Test-Path -LiteralPath $_ }))) {
-            throw "'$gameFull' does not look like a Darktide install. Refusing to restore into it."
-        }
-
-        # Newest first by write time, not by name: a same-second collision gets a
-        # '-1' suffix that would sort before the un-suffixed name.
-        $zips = @(Get-ChildItem -LiteralPath $deployBk -File |
-                  Where-Object { $_.Extension -eq '.zip' } | Sort-Object LastWriteTime -Descending)
-        if (-not $zips) { throw "No deploy backups found in '$deployBk'." }
-
-        $zip = if ($BackupSet) {
-            $hit = @($zips | Where-Object { $_.Name -like "*$BackupSet*" })
-            if (-not $hit) { throw "No deploy backup matching '$BackupSet'." }
-            $hit[0]
-        } else { $zips[0] }
-
-        $gm = Join-Path $gameFull 'mods'
-        Write-Host "  backup : $($zip.Name)"
-        Write-Host "  target : $gm"
-
-        if (-not $Apply) {
-            Write-Warn '  dry run - re-run with -Apply to restore.'
-            Write-Host ''
-            Write-Host '  available backups:'
-            $zips | Select-Object -First 10 | ForEach-Object { Write-Host "    $($_.Name)" }
-            return
-        }
-
-        $p = Get-Process -Name 'Darktide' -ErrorAction SilentlyContinue
-        if ($p) { throw "Darktide.exe is running. Close the game first." }
-
-        Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
-        $stage = "$gm.restoring"
-        if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
-        New-Item -ItemType Directory -Path $stage -Force | Out-Null
-
-        # Guarded extract - same rules as Import-DarktideLoadout.ps1.
-        $root = [System.IO.Path]::GetFullPath($stage).TrimEnd('\') + '\'
-        $archive = [System.IO.Compression.ZipFile]::OpenRead($zip.FullName)
-        try {
-            foreach ($entry in $archive.Entries) {
-                $rel = $entry.FullName -replace '\\', '/'
-                if (-not $rel) { continue }
-                if ($rel -match '(^|/)\.\.(/|$)' -or $rel -match '^([A-Za-z]:|/)') {
-                    throw "Backup contains an unsafe path: '$($entry.FullName)'"
-                }
-                $target = Join-Path $stage ($rel -replace '/', '\')
-                $full = [System.IO.Path]::GetFullPath($target)
-                if (-not $full.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) {
-                    throw "Backup entry '$($entry.FullName)' resolves outside the restore folder."
-                }
-                if ($rel.EndsWith('/')) {
-                    if (-not (Test-Path -LiteralPath $target)) {
-                        New-Item -ItemType Directory -Path $target -Force | Out-Null
-                    }
-                    continue
-                }
-                $parent = Split-Path -Parent $target
-                if ($parent -and -not (Test-Path -LiteralPath $parent)) {
-                    New-Item -ItemType Directory -Path $parent -Force | Out-Null
-                }
-                [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $target, $true)
-            }
-        } catch {
-            Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
-            throw
-        } finally {
-            $archive.Dispose()
-        }
-
-        if (Test-Path -LiteralPath $gm) { Remove-Item -LiteralPath $gm -Recurse -Force }
-        Move-Item -LiteralPath $stage -Destination $gm -Force
-        Write-Ok "  restored from $($zip.Name)"
+        & $Deployer -ConfigPath $ConfigPath -Restore -Apply:$Apply -BackupSet $BackupSet -Force:$Force
         return
     }
 

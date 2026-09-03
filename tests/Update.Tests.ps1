@@ -230,4 +230,18 @@ Describe 'Expand-ModArchive' {
         { Expand-ModArchive -ZipPath $zip -Destination $script:Dest -Prefix 'mymod/' } | Should -Throw
         Test-Path -LiteralPath $outside | Should -BeFalse
     }
+
+    It 'extracts into a destination whose name contains brackets' {
+        $dest = Join-Path $script:Sandbox 'mod[1]'
+        [void][System.IO.Directory]::CreateDirectory($dest)
+        $zip = New-TestZip -Path (Join-Path $script:Sandbox 'brackets.zip') -Entries @{
+            'mymod/mymod.mod'     = 'return {}'
+            'mymod/scripts/a.lua' = '-- a'
+        }
+
+        Expand-ModArchive -ZipPath $zip -Destination $dest -Prefix 'mymod/'
+
+        Test-Path -LiteralPath (Join-Path $dest 'mymod.mod')     | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $dest 'scripts\a.lua') | Should -BeTrue
+    }
 }

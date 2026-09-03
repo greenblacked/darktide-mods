@@ -46,14 +46,27 @@ BeforeAll {
         )
 
         $path = Join-Path ([System.IO.Path]::GetTempPath()) ("dtmods-attr-" + [guid]::NewGuid().ToString('N').Substring(0, 12))
-        & git clone --quiet --no-hardlinks $script:RepoRoot $path 2>&1 | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "could not clone the repository into $path" }
 
-        Copy-Item -LiteralPath $script:Validator -Destination (Join-Path $path 'Test-Modpack.ps1') -Force
+        # Never '2>&1' on a native command here. Under Windows PowerShell 5.1 with
+        # ErrorActionPreference = 'Stop', merging a native stderr into the success
+        # stream turns it into a terminating error - so anything git writes to stderr
+        # fails the test even when git exited 0. pwsh 7 does not do this, which is why
+        # it only showed up on the 5.1 job, and only on a pull_request run: that
+        # checkout is a detached merge ref, so the clone prints the detached-HEAD
+        # advice. advice.detachedHead=false stops it being printed at all; 2>$null and
+        # the Continue preference stop it mattering if git says anything else.
+        $eap = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            & git -c advice.detachedHead=false clone --quiet --no-hardlinks $script:RepoRoot $path 2>$null
+            if ($LASTEXITCODE -ne 0) { throw "could not clone the repository into $path" }
 
-        & git -C $path -c "user.name=$AuthorName" -c "user.email=$AuthorEmail" `
-              commit --quiet --allow-empty -m $Message 2>&1 | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw 'could not plant the commit' }
+            Copy-Item -LiteralPath $script:Validator -Destination (Join-Path $path 'Test-Modpack.ps1') -Force
+
+            & git -C $path -c "user.name=$AuthorName" -c "user.email=$AuthorEmail" `
+                  commit --quiet --allow-empty -m $Message 2>$null
+            if ($LASTEXITCODE -ne 0) { throw 'could not plant the commit' }
+        } finally { $ErrorActionPreference = $eap }
 
         return $path
     }
@@ -98,6 +111,8 @@ BeforeAll {
 }
 
 Describe 'Attribution checks' -Skip:(-not $GitAvailable) {
+
+    BeforeEach { $script:Planted = $null }
 
     AfterEach {
         Remove-PlantedRepo $script:Planted

@@ -34,6 +34,9 @@
 .PARAMETER Force
     Reinstall even when the recorded version already matches.
 
+.PARAMETER KeepBackups
+    How many loader-* backup folders to keep. Default 10. 0 keeps all.
+
 .PARAMETER SkipPatch
     Copy the files but do not run the patcher.
 
@@ -139,6 +142,46 @@ function Test-LoaderSource {
     if (-not (Test-Path -LiteralPath (Join-Path $Path 'tools\dtkit-patch.exe')))    { return $false }
     $patch = @(Get-ChildItem -LiteralPath (Join-Path $Path 'bundle') -Filter '*.patch_*' -File -ErrorAction SilentlyContinue)
     return ($patch.Count -gt 0)
+}
+
+function Expand-LoaderArchive {
+    <#
+        Extracts every entry into $Destination, refusing anything that resolves
+        outside it. Copied from Import-DarktideLoadout.ps1; not a shared module.
+    #>
+    param(
+        [Parameter(Mandatory)] [string] $ZipPath,
+        [Parameter(Mandatory)] [string] $Destination
+    )
+
+    $root = [System.IO.Path]::GetFullPath($Destination).TrimEnd('\') + '\'
+    $zip  = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+    try {
+        foreach ($entry in $zip.Entries) {
+            $rel = $entry.FullName -replace '\\', '/'
+            if (-not $rel) { continue }
+            if ($rel -match '(^|/)\.\.(/|$)' -or $rel -match '^([A-Za-z]:|/)') {
+                throw "Archive contains an unsafe path: '$($entry.FullName)'"
+            }
+
+            $target = Join-Path $Destination ($rel -replace '/', '\')
+            $full   = [System.IO.Path]::GetFullPath($target)
+            if (-not $full.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) {
+                throw "Archive entry '$($entry.FullName)' resolves outside the destination."
+            }
+
+            if ($rel.EndsWith('/')) {
+                # CreateDirectory, not New-Item -Path: 5.1 has no -LiteralPath on New-Item,
+                # and -Path globs on [] in folder names.
+                [void][System.IO.Directory]::CreateDirectory($target)
+                continue
+            }
+
+            $parent = Split-Path -Parent $target
+            if ($parent) { [void][System.IO.Directory]::CreateDirectory($parent) }
+            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $target, $true)
+        }
+    } finally { $zip.Dispose() }
 }
 
 function Find-LoaderSource {
@@ -278,8 +321,8 @@ try {
             throw "Loader source '$sourcePath' is a file but not a .zip."
         }
         $tempExtract = Join-Path ([System.IO.Path]::GetTempPath()) ("dt-loader-" + [guid]::NewGuid().ToString('N').Substring(0, 10))
-        New-Item -ItemType Directory -Path $tempExtract -Force | Out-Null
-        [System.IO.Compression.ZipFile]::ExtractToDirectory($sourcePath, $tempExtract)
+        [void][System.IO.Directory]::CreateDirectory($tempExtract)
+        Expand-LoaderArchive -ZipPath $sourcePath -Destination $tempExtract
 
         # Some archives wrap everything in one top folder.
         $payload = $tempExtract
@@ -364,7 +407,12 @@ bundle\*.patch_* file inside it.
             $src = Join-Path $game $item
             if (-not (Test-Path -LiteralPath $src)) { continue }
             if (Test-Path -LiteralPath $src -PathType Container) {
-                & robocopy.exe $src (Join-Path $backupDir $item) '/E' '/NFL' '/NDL' '/NJH' '/NJS' '/NP' | Out-Null
+                $eap = $ErrorActionPreference
+                $ErrorActionPreference = 'Continue'
+                try {
+                    & robocopy.exe $src (Join-Path $backupDir $item) '/E' '/NFL' '/NDL' '/NJH' '/NJS' '/NP' | Out-Null
+                    if ($LASTEXITCODE -ge 8) { throw "Backing up '$item' failed (robocopy $LASTEXITCODE). Refusing to overwrite the loader without a backup." }
+                } finally { $ErrorActionPreference = $eap }
             } else {
                 Copy-Item -LiteralPath $src -Destination $backupDir -Force
             }
@@ -373,6 +421,7 @@ bundle\*.patch_* file inside it.
 
         if ($KeepBackups -gt 0 -and (Test-Path -LiteralPath $backupRoot)) {
             $stale = @(Get-ChildItem -LiteralPath $backupRoot -Directory |
+                       Where-Object { $_.Name -like 'loader-*' } |
                        Sort-Object LastWriteTime -Descending | Select-Object -Skip $KeepBackups)
             foreach ($old in $stale) {
                 Remove-Item -LiteralPath $old.FullName -Recurse -Force

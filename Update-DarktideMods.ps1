@@ -780,11 +780,11 @@ function Expand-ModArchive {
             }
 
             if ($rel.EndsWith('/')) {
-                if (-not (Test-Path -LiteralPath $target)) { New-Item -ItemType Directory -Path $target -Force | Out-Null }
+                [void][System.IO.Directory]::CreateDirectory($target)
                 continue
             }
             $parent = Split-Path -Parent $target
-            if ($parent -and -not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
+            if ($parent) { [void][System.IO.Directory]::CreateDirectory($parent) }
             [System.IO.Compression.ZipFileExtensions]::ExtractToFile($e, $target, $true)
         }
     } finally {
@@ -881,7 +881,7 @@ function Install-ModArchive {
         # Extract to a staging folder FIRST. Nothing is destroyed until we know the
         # new copy is on disk, so a bad archive can never leave you with no mod.
         if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
-        New-Item -ItemType Directory -Path $stage -Force | Out-Null
+        [void][System.IO.Directory]::CreateDirectory($stage)
         try {
             Expand-ModArchive -ZipPath $ZipPath -Destination $stage -Prefix $layout.Prefix
         } catch {
@@ -902,8 +902,11 @@ function Install-ModArchive {
             Write-Log "Swap failed for $($layout.ModName): $($_.Exception.Message)" 'ERROR'
             if ($backup -and -not (Test-Path -LiteralPath $target)) {
                 Write-Log "Restoring $($layout.ModName) from backup." 'WARN'
-                New-Item -ItemType Directory -Path $target -Force | Out-Null
-                [System.IO.Compression.ZipFile]::ExtractToDirectory($backup, $target)
+                [void][System.IO.Directory]::CreateDirectory($target)
+                # Through the zip-slip guard, like every other extract here. Recovering
+                # from a failed install is still an extract, and a tampered backup should
+                # not be able to write outside the mod folder.
+                Expand-ModArchive -ZipPath $backup -Destination $target -Prefix ''
             }
             Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
             throw
@@ -1168,7 +1171,7 @@ function Invoke-Rollback {
             # a tampered zip in BackupRoot should not write outside the mod folder.
             $stage = Join-Path $ModsRoot ".staging-$name"
             if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
-            New-Item -ItemType Directory -Path $stage -Force | Out-Null
+            [void][System.IO.Directory]::CreateDirectory($stage)
             try {
                 Expand-ModArchive -ZipPath $z.FullName -Destination $stage -Prefix ''
             } catch {
