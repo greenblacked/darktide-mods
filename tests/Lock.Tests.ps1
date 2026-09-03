@@ -258,4 +258,66 @@ Describe 'Test-Modpack (the repo validator)' {
         $out = & $script:Validator *>&1 | Out-String
         $out | Should -Not -Match 'FAIL  config.json is not tracked by git'
     }
+
+    Context 'the -LiteralPath check' {
+        # A check that matches nothing passes on everything, and reads exactly like
+        # a check that works. So these plant each shape and watch what it says,
+        # rather than only confirming a clean tree stays clean.
+
+        BeforeAll {
+            # Defined here, not in the Context body: that body runs during Pester's
+            # discovery pass, and a function created then is gone by the time an It
+            # actually executes.
+            function Get-Verdict {
+                param([string] $Code)
+                Set-Content -LiteralPath (Join-Path $script:Sandbox 'Probe-Thing.ps1') -Value $Code -Encoding UTF8
+                $eap = $ErrorActionPreference
+                $ErrorActionPreference = 'Continue'
+                try {
+                    $out = & (Join-Path $script:Sandbox 'Test-Modpack.ps1') *>&1 | Out-String
+                } finally { $ErrorActionPreference = $eap }
+                foreach ($line in ($out -split "`r?`n")) {
+                    if ($line -match '^\s+(PASS|FAIL)\s+destructive filesystem calls use -LiteralPath\s*$') {
+                        return $matches[1]
+                    }
+                }
+                return 'MISSING'
+            }
+        }
+
+        BeforeEach {
+            $script:Sandbox = New-TestSandbox
+            Copy-Item -LiteralPath $script:Validator -Destination (Join-Path $script:Sandbox 'Test-Modpack.ps1') -Force
+        }
+
+        AfterEach {
+            if ($script:Sandbox -and (Test-Path -LiteralPath $script:Sandbox)) {
+                Remove-Item -LiteralPath $script:Sandbox -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+
+        It 'fails <_>' -ForEach @(
+            'Remove-Item -Path $x -Recurse -Force',
+            'Remove-Item $x -Recurse -Force',
+            'Move-Item -Path $a -Destination $b',
+            'Copy-Item $a $b'
+        ) {
+            Get-Verdict $_ | Should -Be 'FAIL'
+        }
+
+        It 'passes <_>' -ForEach @(
+            'Remove-Item -LiteralPath $x -Recurse -Force',
+            'Remove-Item -lit $x -Force',
+            'Get-ChildItem -LiteralPath $d | Remove-Item -Force',
+            'Remove-Item Env:NEXUS_API_KEY -ErrorAction SilentlyContinue'
+        ) {
+            Get-Verdict $_ | Should -Be 'PASS'
+        }
+
+        It 'ignores a call that only appears inside a string' {
+            # darktide.ps1 prints 'Copy-Item ...' as help text. A grep reports it;
+            # parsing does not, which is why the check parses.
+            Get-Verdict "`$h = @`"`nCopy-Item `$a `$b`n`"@" | Should -Be 'PASS'
+        }
+    }
 }

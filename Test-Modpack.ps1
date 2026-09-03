@@ -392,6 +392,81 @@ Test-Case 'exactly two identical Assert-GameNotRunning copies' {
     }
 }
 
+Test-Case 'destructive filesystem calls use -LiteralPath' {
+    # Remove-Item -Path '[ab]' deletes 'a'. The brackets are a glob, not a name, and
+    # the cmdlet is happy to match something else and delete that instead. Mod folder
+    # names here are full of brackets and these scripts delete inside a real game
+    # install, so -LiteralPath is a safety property, not a style preference.
+    #
+    # Parsed rather than grepped: a regex cannot tell a real call from the
+    # 'Copy-Item ...' inside the help text darktide.ps1 prints, and would report it.
+    #
+    # A piped call (Get-ChildItem ... | Remove-Item) binds by property and never
+    # globs, so a command with no path argument at all is fine.
+    $destructive = @('Remove-Item', 'Move-Item', 'Copy-Item', 'Rename-Item')
+    $hits = @()
+
+    foreach ($s in $scripts) {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+            $s.FullName, [ref]$null, [ref]$null)
+
+        foreach ($cmd in $ast.FindAll({
+                param($n) $n -is [System.Management.Automation.Language.CommandAst]
+            }, $true)) {
+
+            $name = $cmd.GetCommandName()
+            if (-not $name -or $destructive -notcontains $name) { continue }
+
+            $elements   = $cmd.CommandElements
+            $sawLiteral = $false
+            $sawPath    = $false
+            $sawBareArg = $false
+            $pathText   = ''
+
+            for ($i = 1; $i -lt $elements.Count; $i++) {
+                $e = $elements[$i]
+                if ($e -is [System.Management.Automation.Language.CommandParameterAst]) {
+                    $pn = $e.ParameterName
+                    # PowerShell accepts any unambiguous prefix, so -lit and
+                    # -LiteralPath are the same parameter and both must count.
+                    if ('LiteralPath'.StartsWith($pn, [StringComparison]::OrdinalIgnoreCase)) {
+                        $sawLiteral = $true
+                    } elseif ('Path'.StartsWith($pn, [StringComparison]::OrdinalIgnoreCase)) {
+                        $sawPath = $true
+                    }
+                    # A parameter that takes an argument swallows the next element,
+                    # so it is not a positional path.
+                    if ($null -eq $e.Argument -and ($i + 1) -lt $elements.Count -and
+                        -not ($elements[$i + 1] -is [System.Management.Automation.Language.CommandParameterAst])) {
+                        if ($sawPath -and -not $pathText) { $pathText = $elements[$i + 1].Extent.Text }
+                        $i++
+                    }
+                } else {
+                    # A bare argument before any named path binds positionally to -Path.
+                    $sawBareArg = $true
+                    if (-not $pathText) { $pathText = $e.Extent.Text }
+                }
+            }
+
+            if ($sawLiteral) { continue }
+            if (-not $sawPath -and -not $sawBareArg) { continue }   # piped input
+
+            # Other providers are not the filesystem and do not glob paths the same
+            # way; 'Remove-Item Env:NEXUS_API_KEY' is correct and has no -LiteralPath
+            # to offer. A single-letter drive is a real disk, so C:\ stays in scope.
+            if ($pathText -match '^[''"]?(Env|Variable|Function|Alias|Cert|WSMan|HK[A-Z]{2,3}):') { continue }
+
+            $how  = if ($sawPath) { '-Path' } else { 'a positional path' }
+            $line = $cmd.Extent.StartLineNumber
+            $hits += "$($s.Name):$line $name uses $how"
+        }
+    }
+
+    if ($hits) {
+        throw "Destructive filesystem call without -LiteralPath: $($hits -join '; '). -Path treats [] in a mod folder name as a glob and can act on the wrong folder."
+    }
+}
+
 Test-Case 'release allow-list files exist' {
     $ci = Join-Path $root '.github/workflows/ci.yml'
     if (-not (Test-Path -LiteralPath $ci)) { throw '.github/workflows/ci.yml is missing' }

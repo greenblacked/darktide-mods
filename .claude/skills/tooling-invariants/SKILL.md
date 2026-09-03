@@ -179,6 +179,21 @@ Every script opens with `Set-StrictMode -Version Latest` and
   `$script:PascalCase`.
 - Prefer `-LiteralPath` over `-Path` for filesystem calls. Mod folder names contain
   brackets and other glob metacharacters, and `-Path` will silently do the wrong thing.
+  Concretely: with a folder `a` alongside, `Remove-Item -Path '[ab]'` deletes **`a`**
+  and leaves `[ab]` standing. A positional argument is `-Path`, so `Remove-Item $x`
+  has the same problem as `Remove-Item -Path $x`.
+
+  `Test-Modpack.ps1` enforces this with `destructive filesystem calls use
+  -LiteralPath`, which parses rather than greps - a regex reports the `Copy-Item` that
+  only appears inside the help text `darktide.ps1` prints. A piped call binds by
+  property and never globs, so it is allowed; so is another provider, where
+  `Remove-Item Env:NEXUS_API_KEY` is correct and has no `-LiteralPath` to offer.
+
+  Creating a directory is the exception, and not for the reason it looks like.
+  `New-Item` has no `-LiteralPath` in any edition, so it cannot follow the rule at
+  all - but `New-Item -ItemType Directory -Path` does **not** glob, so there was never
+  a bug there. These scripts use `[System.IO.Directory]::CreateDirectory` anyway, to
+  keep every path literal and leave no exception to remember.
   `New-Item` on Windows PowerShell 5.1 has no `-LiteralPath`; for destinations taken
   from archive or mod names use `[System.IO.Directory]::CreateDirectory` instead.
 - Failures are surfaced, not swallowed. There are three bare `catch { }` blocks in

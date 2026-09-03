@@ -84,8 +84,12 @@ function Expand-LoadoutArchive {
             }
 
             if ($rel.EndsWith('/')) {
-                # CreateDirectory, not New-Item -Path: 5.1 has no -LiteralPath on New-Item,
-                # and -Path globs on [] in folder names.
+                # CreateDirectory, not New-Item: New-Item is the one filesystem cmdlet
+                # used here that has no -LiteralPath at all, in any edition, so it
+                # cannot follow the house rule. Creating a directory does not glob -
+                # the danger is on the read and delete side - but keeping every path
+                # literal removes the exception, and CreateDirectory is idempotent
+                # without -Force and returns nothing to pipe away.
                 [void][System.IO.Directory]::CreateDirectory($target)
                 continue
             }
