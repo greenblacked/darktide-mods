@@ -47,7 +47,8 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
+      # Pinned to the commit v7 pointed at on 2026-09-02. A tag can be moved.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           fetch-depth: 0
           # Read-only job: do not hand the GITHUB_TOKEN to later steps as a git credential.
@@ -101,7 +102,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -167,9 +168,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           fetch-depth: 0
+          # Publish job: do not persist GITHUB_TOKEN as a git credential for later steps.
+          persist-credentials: false
 
       - name: Resolve version
         id: ver
@@ -290,9 +293,11 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           fetch-depth: 0
+          # Publish job: do not persist GITHUB_TOKEN as a git credential for later steps.
+          persist-credentials: false
 
       - name: Check for the API key
         shell: pwsh
