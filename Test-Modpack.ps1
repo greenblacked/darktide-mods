@@ -296,6 +296,69 @@ Test-Case 'no agent attribution in commit messages' {
     } finally { Pop-Location }
 }
 
+Test-Case 'commits are authored by a person, not an agent' {
+    # The two checks above read the message. Neither reads the author or committer
+    # fields, and that is the gap a bot walked through: four merge commits reached
+    # the default branch authored by an agent account, which is what the GitHub
+    # contributors list is built from. The message was clean every time.
+    Push-Location $root
+    try {
+        $eap = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            $log = @(& git log --format='%an <%ae>%x1f%cn <%ce>' 2>$null)
+            if ($LASTEXITCODE -ne 0 -or -not $log) {
+                Add-Warning 'not a git checkout, or no history available - commit identities not scanned'
+                return
+            }
+        } finally { $ErrorActionPreference = $eap }
+
+        $owner = 'greenblacked <zolotov.98@gmail.com>'
+
+        # Assembled from fragments for the same reason as the list above: spelled out,
+        # this file becomes the thing its own check reports.
+        $agents = @(
+            [char]0x57 + 'arp',
+            [char]0x43 + 'laude',
+            [char]0x43 + 'opilot',
+            [char]0x43 + 'ursor',
+            [char]0x44 + 'evin',
+            [char]0x43 + 'odex',
+            [char]0x41 + 'ider',
+            'anthropic.com',
+            'openai.com'
+        )
+
+        $seen = [System.Collections.Generic.HashSet[string]]::new()
+        foreach ($line in $log) {
+            foreach ($id in ($line -split "`u{001f}")) {
+                $id = $id.Trim()
+                if ($id) { [void]$seen.Add($id) }
+            }
+        }
+
+        $bots = @()
+        $others = @()
+        foreach ($id in $seen) {
+            if ($id -eq $owner) { continue }
+            $isBot = $id -match '(?i)\[bot\]' -or $id -match '(?i)<[^>]*(bot|agent)@'
+            foreach ($a in $agents) {
+                if ($id -match "(?i)$([regex]::Escape($a))") { $isBot = $true }
+            }
+            if ($isBot) { $bots += $id } else { $others += $id }
+        }
+
+        # An unexpected human is worth saying out loud but is not a failure; a merge
+        # made through the GitHub web UI legitimately lands a committer of its own.
+        foreach ($o in ($others | Sort-Object -Unique)) {
+            Add-Warning "commit identity '$o' is not the repository owner"
+        }
+        if ($bots) {
+            throw "Agent identity on a commit: $(($bots | Sort-Object -Unique) -join '; '). Set user.name and user.email to the owner before committing - the fix after the fact is a history rewrite and a force-push."
+        }
+    } finally { Pop-Location }
+}
+
 Test-Case '.gitignore covers the important things' {
     $gi = Join-Path $root '.gitignore'
     if (-not (Test-Path -LiteralPath $gi)) { throw '.gitignore is missing' }

@@ -145,8 +145,12 @@ the repository owner. Tooling appends such a footer to a PR body on creation, so
 it afterwards and verify it is gone rather than assuming.
 
 `Test-Modpack.ps1` enforces the file-content half with `no agent attribution
-committed`, and the trailer half with `no agent attribution in commit messages`.
-CI checks out with `fetch-depth: 0` so the trailer scan sees the whole history.
+committed`, the trailer half with `no agent attribution in commit messages`, and
+the identity half with `commits are authored by a person, not an agent`, which reads
+the author and committer fields the other two never look at. That last one fails on
+a bot-shaped identity and only warns on an unexpected human, so a merge made through
+the GitHub web UI does not turn CI red. CI checks out with `fetch-depth: 0` so all
+three see the whole history.
 Pull request bodies stay a matter of care. Naming a model in prose is not
 attribution; the vendored `sepia` skill catalogues model fingerprints by name, and
 the `.claude/skills/` path is fixed by the tooling.

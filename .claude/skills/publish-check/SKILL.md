@@ -33,19 +33,24 @@ Sweep, in this order:
 1. **Files** - `Test-Modpack.ps1` covers these with its `no agent attribution
    committed` check. It scans tracked `.md`, `.ps1`, `.json`, `.yml` and `.sh`
    content for the credit markers. It reads and throws; it never edits.
-2. **Commit messages** - covered by the `no agent attribution in commit messages`
+2. **Commit identity** - covered by `commits are authored by a person, not an agent`,
+   which reads `%an`/`%ae` and `%cn`/`%ce`. The message checks never look at those
+   fields, and that is the gap four merge commits walked through: authored by a bot,
+   message spotless. Check `git config user.email` before committing rather than
+   after.
+3. **Commit messages** - covered by the `no agent attribution in commit messages`
    check, which scans trailers for any agent, not one vendor. It reads `%B` so line
    breaks survive; a format that packs fields onto one line glues the trailer to the
    subject and the anchor stops matching, which is how a draft of that check passed on
    a commit it should have caught. CI checks out with `fetch-depth: 0` so the scan
    sees the whole history, not only the tip. A shallow clone still warns when the
    reachable count is small.
-3. **Pull request bodies** - fetch each one and read what is actually stored, not
+4. **Pull request bodies** - fetch each one and read what is actually stored, not
    what you submitted. These differ.
-4. **Comments and reviews** - on every pull request the work touches, not only the
+5. **Comments and reviews** - on every pull request the work touches, not only the
    current one.
 
-Steps 3 and 4 stay manual: nothing inside the repository can see what GitHub stores.
+Steps 4 and 5 stay manual: nothing inside the repository can see what GitHub stores.
 
 ## When it has already been published
 
@@ -64,8 +69,31 @@ shape before starting:
 - The contributors panel updates on GitHub's own schedule, so it lagging is not
   evidence the rewrite failed.
 
-Cheaper than any of that: keep the trailer out. Configure the tool that adds it, and
-check before the merge rather than after.
+It happened a second time through the identity fields rather than the message, and
+that rewrite is worth describing because it is the larger one:
+
+- Rewriting identity means rewriting *every* branch, not the default one. A merged
+  feature branch left alone keeps the old commits reachable, and the contributors list
+  is built from what is reachable.
+- `git filter-branch` may not be available to you. `git fast-export --all` piped
+  through a filter into `git fast-import` on a scratch repository does the same job and
+  leaves the original untouched until you fetch the result back, which makes it the
+  safer shape anyway. Filter the stream with a parser that honours `data <n>` byte
+  counts; a line-wise `sed` will corrupt any file whose content happens to start with
+  `author `.
+- Collapsing several identities into one can merge commits that differed only by
+  identity. Compare commit counts per branch as well as tree hashes, and say which
+  branches lost commits rather than reporting only the trees.
+- Force-pushing a branch closes any pull request whose head it replaces, and GitHub
+  reports those as closed-not-merged even where the content did land. Expect to
+  reopen or re-cut them, and check whether another session merged something into the
+  default branch while the rewrite was being prepared - that work has to be
+  cherry-picked onto the rewritten history rather than force-pushed over.
+- A `--force-with-lease` that fails with `stale info` usually means the branch was
+  deleted on the remote after a merge, not that someone else pushed.
+
+Cheaper than any of that: keep the trailer out, and set `user.name` and `user.email`
+to the owner before the first commit. Check before the merge rather than after.
 
 ## Pass 2 - prose
 
