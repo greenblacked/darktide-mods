@@ -93,6 +93,58 @@ jobs:
           $md | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
   # ---------------------------------------------------------------------------
+  # Windows PowerShell 5.1. The job above runs pwsh 7; this one runs the engine
+  # that ships with Windows, which is what a user who has installed nothing gets.
+  # Invoke-Tests.ps1 branches on $PSVersionTable.PSEdition -eq 'Desktop' and no
+  # job had ever taken that branch, so the 5.1 path was asserted and untested.
+  # It has already earned its place: the validator split on `u{001e}, an escape
+  # PowerShell 7 added and 5.1 does not understand.
+  # ---------------------------------------------------------------------------
+  windows-powershell:
+    name: Suite on Windows PowerShell 5.1
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Confirm this really is Windows PowerShell 5.1
+        shell: powershell
+        # Cheap, and it is the whole point of the job: if the runner image ever
+        # makes 'powershell' an alias for pwsh, every assertion below silently
+        # becomes a duplicate of the job above.
+        run: |
+          $PSVersionTable | Format-Table -AutoSize | Out-String | Write-Host
+          if ($PSVersionTable.PSEdition -ne 'Desktop') {
+            throw "Expected the Desktop edition, got '$($PSVersionTable.PSEdition)'."
+          }
+          if ($PSVersionTable.PSVersion.Major -ne 5) {
+            throw "Expected PowerShell 5.x, got $($PSVersionTable.PSVersion)."
+          }
+
+      - name: Install Pester 5
+        shell: powershell
+        # 5.1 defaults to TLS 1.0 and ships Pester 3, so the gallery is
+        # unreachable and the module is side by side rather than an upgrade.
+        run: |
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+          Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force | Out-Null
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          if (-not (Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version.Major -ge 5 })) {
+            Install-Module Pester -MinimumVersion 5.5.0 -Scope CurrentUser -Force -SkipPublisherCheck
+          }
+
+      - name: Validator runs clean on 5.1
+        shell: powershell
+        run: .\Test-Modpack.ps1
+
+      - name: Suite runs on 5.1
+        shell: powershell
+        run: .\Invoke-Tests.ps1 -Output Detailed -SkipValidator
+
+  # ---------------------------------------------------------------------------
   # Linux guard. The validator claims to be cross-platform and Invoke-Tests.ps1
   # claims to refuse the suite off Windows - neither claim is observable from a
   # windows-latest job, so both regressed silently until they were caught by hand.
