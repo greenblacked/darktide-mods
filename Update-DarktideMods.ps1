@@ -177,7 +177,12 @@ function Get-Configuration {
 
     $cfg = [ordered]@{
         ModsRoot    = ''
-        DownloadDir = (Join-Path $env:USERPROFILE 'Downloads')
+        # A default, and config.json overrides it a few lines down. Building it
+        # unconditionally threw "Cannot bind argument to parameter 'Path'" wherever
+        # USERPROFILE is unset, which killed the script during config load - before
+        # it reached any of the Windows-only work that is the real reason this tool
+        # needs Windows. The guard changes nothing on Windows.
+        DownloadDir = $(if ($env:USERPROFILE) { Join-Path $env:USERPROFILE 'Downloads' } else { '' })
         BackupRoot  = ''
         GameDomain  = 'warhammer40kdarktide'
         ApiKey      = ''
@@ -1284,7 +1289,12 @@ if ($NoApi -or -not $cfg.ApiKey) {
                 'NEWER' {0} 'NEW' {1} 'UNKNOWN-LOCAL' {2} 'VERSION-UNKNOWN' {3}
                 'OLDER' {4} 'SAME' {5} default {6}
             } } }, Mod |
-        Format-Table -AutoSize -Property Mod, ModId, Local, Latest, Status, Action
+        Format-Table -AutoSize -Property Mod, ModId, Local, Latest, Status, Action |
+        # Rendered to text, not left as format objects on the success stream. Every
+        # other line this script prints goes through Write-Log, so redirecting the
+        # run to a file used to capture all of them and drop the plan table - the one
+        # thing a dry run exists to show - leaving blank lines in its place.
+        Out-String -Width 200 | Write-Host
 
     $csv = Join-Path $PSScriptRoot ('report-offline-{0}.csv' -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
     $report | Export-Csv -LiteralPath $csv -NoTypeInformation -Encoding UTF8
@@ -1491,7 +1501,8 @@ Write-Host ''
 $report | Sort-Object @{ Expression = {
         switch ($_.Status) { 'OUTDATED' {0} 'UNKNOWN-LOCAL' {1} 'API-ERROR' {2} 'UNMAPPED' {3} default {4} }
     } }, Mod |
-    Format-Table -AutoSize -Property Mod, ModId, Local, Latest, Status, Action
+    Format-Table -AutoSize -Property Mod, ModId, Local, Latest, Status, Action |
+    Out-String -Width 200 | Write-Host   # see the note on the offline table above
 
 $csv = Join-Path $PSScriptRoot ('report-{0}.csv' -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
 $report | Export-Csv -LiteralPath $csv -NoTypeInformation -Encoding UTF8
