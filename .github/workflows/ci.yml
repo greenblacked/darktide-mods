@@ -22,6 +22,7 @@ on:
           - release
           - refresh-lock
           - prune-branches
+          - check-actions
       version:
         description: 'Release version, e.g. 1.2.0 (release only; leave blank to derive from the date)'
         required: false
@@ -509,6 +510,125 @@ jobs:
           code=$(curl -sS -o /dev/null -w '%{http_code}' -L --max-time 60 "$url")
           [ "$code" = "200" ] || { echo "::error::$url returned $code"; exit 1; }
           echo "release asset for $rid exists"
+
+  # ---------------------------------------------------------------------------
+  # The Docker harness. run-tests-docker.sh is documented in the README and in the
+  # validate-change skill, and nothing ran it - so whether it still worked was an
+  # article of faith. This runner has a live daemon, which is the one thing a
+  # developer machine most often does not.
+  #
+  # Not on every push. The harness is a developer convenience - nothing gates on
+  # it, and no job needs it - but the build is the most expensive thing in this
+  # file and the least predictable: it apt-gets inside the container, and one run
+  # spent twenty minutes inside a single 'apt-get update' because an Ubuntu mirror
+  # was crawling. Paying that on every branch push, to re-prove a script that only
+  # changes when someone edits it, is the wrong trade. Once per pull request, and
+  # on demand, is where the cost buys something.
+  # ---------------------------------------------------------------------------
+  docker-harness:
+    name: The Docker test harness still runs
+    if: >-
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_dispatch' && inputs.task == 'validate')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Refuse to run without docker, with the documented exit code
+        shell: bash
+        run: |
+          # The contract is exit 2 for "docker unusable". Proving the CLI-present,
+          # daemon-stopped branch needs a machine with no daemon, which this is not,
+          # so assert the not-installed branch instead by hiding docker from PATH.
+          #
+          # Hiding it means a PATH holding only what the script needs before the
+          # docker check - dirname; cd and pwd are builtins. Blanking PATH entirely
+          # does not work: the shebang is '/usr/bin/env bash', and env resolves bash
+          # through the PATH it was given, so the script never starts and the step
+          # measures 127 from env rather than anything about docker. Calling bash by
+          # absolute path is what makes the restricted PATH apply to the script and
+          # not to starting it.
+          probe="$RUNNER_TEMP/nodocker-bin"
+          mkdir -p "$probe"
+          ln -sf "$(command -v dirname)" "$probe/dirname"
+          bash_bin="$(command -v bash)"
+
+          set +e
+          env PATH="$probe" "$bash_bin" ./run-tests-docker.sh validate >"$RUNNER_TEMP/nodocker.log" 2>&1
+          got=$?
+          set -e
+          if [ "$got" -ne 2 ]; then
+            echo "::error::expected exit 2 with no docker on PATH, got $got"
+            cat "$RUNNER_TEMP/nodocker.log"
+            exit 1
+          fi
+          grep -q 'docker not found on PATH' "$RUNNER_TEMP/nodocker.log" || {
+            echo "::error::exit 2 was right but the message was not"; cat "$RUNNER_TEMP/nodocker.log"; exit 1; }
+          echo "ok: no docker -> 2"
+
+      - name: The harness builds and passes
+        shell: bash
+        run: ./run-tests-docker.sh
+
+  # ---------------------------------------------------------------------------
+  # Are the pinned action SHAs still the tags they claim to be?
+  #
+  # Deliberately not Dependabot. Its pull requests are authored by dependabot[bot],
+  # which fails this repository's own 'commits are authored by a person, not an
+  # agent' check and would put a bot back in the contributors list - the thing that
+  # took a history rewrite to remove. Verified rather than assumed: a planted
+  # dependabot-authored commit fails the validator.
+  #
+  # So this reports instead of opening anything, and a person does the bump.
+  # ---------------------------------------------------------------------------
+  check-actions:
+    name: Pinned actions are current
+    if: github.event_name == 'workflow_dispatch' && inputs.task == 'check-actions'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          persist-credentials: false
+
+      - name: Compare each pin against the tag it names
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          stale=0
+          # "owner/repo tag sha" for every pinned use, deduplicated.
+          pins=$(grep -oE 'uses: [^@]+@[0-9a-f]{40}[[:space:]]*#[[:space:]]*[^[:space:]]+' .github/workflows/ci.yml |
+                 sed -E 's|uses: ([^@]+)@([0-9a-f]{40})[[:space:]]*#[[:space:]]*(.+)|\1 \3 \2|' |
+                 sort -u)
+          [ -n "$pins" ] || { echo "::error::no pinned actions found - has the pin format changed?"; exit 1; }
+
+          while read -r repo tag pinned; do
+            [ -z "$repo" ] && continue
+            # Resolves an annotated tag to its commit, which 'git/ref/tags' does not.
+            current=$(gh api "repos/$repo/commits/$tag" --jq .sha 2>/dev/null || echo '')
+            if [ -z "$current" ]; then
+              echo "::warning::could not resolve $repo@$tag"
+              continue
+            fi
+            if [ "$current" = "$pinned" ]; then
+              echo "current  $repo $tag"
+            else
+              echo "::warning::$repo $tag has moved: pinned ${pinned:0:12}, $tag is now ${current:0:12}"
+              stale=$((stale + 1))
+            fi
+          done <<< "$pins"
+
+          if [ "$stale" -gt 0 ]; then
+            echo "$stale pin(s) behind the tag they name. Update the SHA and the trailing comment together."
+            exit 1
+          fi
+          echo "every pin matches the tag it names."
 
   # ---------------------------------------------------------------------------
   # Delete branches whose work is already on the default branch.

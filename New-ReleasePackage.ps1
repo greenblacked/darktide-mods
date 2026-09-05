@@ -68,6 +68,9 @@ $Include = @(
     'Import-DarktideLoadout.ps1',
     'Initialize-DarktideConfig.ps1',
     'Install-DarktideLoader.ps1',
+    # The dispatcher checks every script it fronts exists before it runs anything, so
+    # a script left out here breaks every verb, not just its own.
+    'Find-ModUpdates.ps1',
     'Test-Modpack.ps1',
     'Invoke-Tests.ps1',
     'tests',

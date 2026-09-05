@@ -36,7 +36,7 @@ and this setup runs without one. Treat it as informational, not as a task.
 .\Invoke-Tests.ps1 -Output Detailed   # per-test output
 ```
 
-Roughly 170 tests across 9 files (168 as this was written), all sandboxed under
+Roughly 250 tests across 13 files (250 as this was written, counted from the windows-latest job), all sandboxed under
 `$env:TEMP`. They build a fake game folder, a fake staging tree and real zip archives,
 and touch nothing real and nothing networked. Safe to run at any time.
 
@@ -49,7 +49,7 @@ Its exit codes are the thing to read, not the last line of output:
 | 3 | nothing failed, but the Pester suite was skipped because this is not Windows |
 
 **3 is not success.** It means the change is unverified — the validator passed and the
-153 tests never executed. Off Windows that is the code you get by default, which is the
+suite never executed. Off Windows that is the code you get by default, which is the
 point: a script or a habit that treats 0-or-nothing as "green" cannot mistake it for a
 passing suite.
 
@@ -104,9 +104,12 @@ environmental. Recognising the three signatures saves you from chasing phantom b
 
 `Invoke-Tests.ps1` detects a non-Windows host and says so rather than letting you draw
 the wrong conclusion, then falls back to the validator. `-AllowNonWindows` forces the
-Pester run anyway, which is occasionally useful — `-Path Lock` is fully
-platform-independent and passes 10/10 every time, which is why the CI Linux job asserts
-that one specifically.
+Pester run anyway, which is occasionally useful. Four suites hold up off Windows:
+`Lock`, `Attribution`, `Package` and `FindUpdates`. None of them builds a game folder or
+resolves a `\`-separated archive entry, so a failure in one of them is a real failure
+rather than the platform, which is why the CI Linux and macOS jobs assert `-Path Lock`
+specifically. Everything else in the suite is Windows-only and its Linux result means
+nothing either way.
 
 Do not build anything on the off-Windows result of `-Path Update`: its two
 `Expand-ModArchive` traversal tests flake there, passing in some runs and failing in
@@ -179,7 +182,14 @@ It builds `Dockerfile.test` and, in a Linux PowerShell container, runs:
 3. `Invoke-Tests.ps1 -SkipValidator` — expect exit **3**
 4. `Invoke-Tests.ps1 -AllowNonWindows -Path Lock -SkipValidator` — expect exit **0**
 
-Exit 2 means docker is not on PATH. `./run-tests-docker.sh full` is the explicit
+Exit 2 means docker is unusable - either not on PATH, or installed with the daemon
+not running, which is the normal state on a Mac until you start Docker Desktop. That
+second case used to slip past the check and die inside `docker build` with a raw
+socket error and exit 1; the harness now asks `docker info` before it builds anything.
+CI runs the harness on every pull request and on a manual `validate` run, so whether
+it still works is checked rather than assumed. It is not on every push: the image
+build is the slowest step in the workflow and nothing gates on it.
+`./run-tests-docker.sh full` is the explicit
 "expect ~70 environmental failures" mode. Do not treat it as a pass/fail gate, and
 do not report "tests pass" from a Docker run or from `Invoke-Tests.ps1` exit 3.
 

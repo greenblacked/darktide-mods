@@ -44,3 +44,5 @@ Both are dry runs until `-Apply`:
 No API key → offline mode. Archives in `DownloadDir` are enough for `update` / `sync`.
 
 Version *checking* with a Nexus API key is optional. Free accounts get HTTP 403 on Nexus download links, so this tool never auto-downloads archives. Premium does not change that here — you still download in the browser.
+
+With no key at all, `.\darktide.ps1 links` turns the lockfile into the list of pages to open, so the manual check is a list of links rather than a search per mod. Add `-CheckGitHub` and it will also read the latest release tag for any mod given a `githubRepo` in `mods-map.json` — the one upstream that answers without a key.

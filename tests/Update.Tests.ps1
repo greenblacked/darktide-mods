@@ -15,8 +15,17 @@ BeforeAll {
         'Get-ArchiveVersionFromName',
         'Compare-ModVersion',
         'Get-ArchiveModLayout',
-        'Expand-ModArchive'
+        'Expand-ModArchive',
+        'Get-NormalizedName',
+        'Resolve-ModIds'
     )
+
+    # Resolve-ModIds is the one function here that would talk to Nexus. Stub the three
+    # calls it makes so the resolve pass runs with no key and no network: the property
+    # under test is what it does to mods-map.json, not what Nexus answers.
+    function global:Invoke-NexusApi { param($Path, $Key, [switch] $AllowFailure) $null = $Path, $Key, $AllowFailure; return $null }
+    function global:Get-NexusMod    { param($Domain, $ModId, $Key) $null = $Domain, $ModId, $Key; return $null }
+    function global:Test-RateBudget { param($Need) $null = $Need; return $false }
 
     # Get-ArchiveModLayout logs when it rejects an archive; the real logger needs
     # script state we deliberately are not loading.
@@ -243,5 +252,66 @@ Describe 'Expand-ModArchive' {
 
         Test-Path -LiteralPath (Join-Path $dest 'mymod.mod')     | Should -BeTrue
         Test-Path -LiteralPath (Join-Path $dest 'scripts\a.lua') | Should -BeTrue
+    }
+}
+
+Describe 'Resolve-ModIds and the mods-map entry' {
+    # This pass rewrites the map entry around the four fields it owns. Anything else on
+    # the entry was put there by hand, and losing it is silent - you find out when the
+    # thing that read it stops working.
+
+    BeforeEach {
+        $script:Mods = @(
+            [pscustomobject]@{ Folder = 'alpha_mod'; DisplayName = 'Alpha'; ModId = 447 }
+        )
+        $script:Catalog = Join-Path $script:Sandbox 'absent-catalog.json'
+    }
+
+    It 'keeps a hand-written githubRepo on an entry it fills in' {
+        $map = @{ alpha_mod = [pscustomobject]@{ modId = $null; name = 'Alpha'; githubRepo = 'author/alpha' } }
+
+        $out = Resolve-ModIds -Mods $script:Mods -Map $map -Domain 'warhammer40kdarktide' `
+                              -Key '' -CatalogPath $script:Catalog
+
+        $out['alpha_mod'].modId     | Should -Be 447
+        $out['alpha_mod'].githubRepo | Should -Be 'author/alpha'
+    }
+
+    It 'keeps a pinned flag on an entry it fills in' {
+        $map = @{ alpha_mod = [pscustomobject]@{ modId = $null; name = 'Alpha'; pinned = $true } }
+
+        $out = Resolve-ModIds -Mods $script:Mods -Map $map -Domain 'warhammer40kdarktide' `
+                              -Key '' -CatalogPath $script:Catalog
+
+        $out['alpha_mod'].pinned | Should -BeTrue
+    }
+
+    It 'keeps any other field someone added by hand' {
+        $map = @{ alpha_mod = [pscustomobject]@{ modId = $null; name = 'Alpha'; comment = 'ask the author first' } }
+
+        $out = Resolve-ModIds -Mods $script:Mods -Map $map -Domain 'warhammer40kdarktide' `
+                              -Key '' -CatalogPath $script:Catalog
+
+        $out['alpha_mod'].comment | Should -Be 'ask the author first'
+    }
+
+    It 'leaves an already-mapped entry alone' {
+        $map = @{ alpha_mod = [pscustomobject]@{ modId = 999; name = 'Whatever I called it'; githubRepo = 'author/alpha' } }
+
+        $out = Resolve-ModIds -Mods $script:Mods -Map $map -Domain 'warhammer40kdarktide' `
+                              -Key '' -CatalogPath $script:Catalog
+
+        $out['alpha_mod'].modId | Should -Be 999
+        $out['alpha_mod'].name  | Should -Be 'Whatever I called it'
+    }
+
+    It 'still refreshes the fields it owns' {
+        $map = @{ alpha_mod = [pscustomobject]@{ modId = $null; name = 'stale name'; note = 'unresolved - ...'; githubRepo = 'author/alpha' } }
+
+        $out = Resolve-ModIds -Mods $script:Mods -Map $map -Domain 'warhammer40kdarktide' `
+                              -Key '' -CatalogPath $script:Catalog
+
+        $out['alpha_mod'].name | Should -Be 'Alpha'
+        $out['alpha_mod'].note | Should -BeNullOrEmpty
     }
 }

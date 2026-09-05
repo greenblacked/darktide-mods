@@ -98,6 +98,11 @@ is present, `Update-DarktideMods.ps1:1173` falls back to offline mode automatica
 the dispatcher's everyday verbs never ask for one in the first place — `darktide.ps1`
 passes `-NoApi` unconditionally for `update` (line 212) and `sync` (line 226).
 
+`Find-ModUpdates.ps1` (the `links` verb) is the same principle applied to *finding* an
+update rather than installing one: the Nexus page list needs no network at all, and the
+one upstream it will query is the public GitHub release endpoint, which needs no key.
+It never downloads, and it never claims a version is newer — see the note in the script.
+
 What still works with no key: installing archives you downloaded yourself from Nexus,
 version comparison from the archive filename, load-order maintenance, deploy, rollback,
 export/import, loader install, and lockfile generation (versions come from
