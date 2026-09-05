@@ -516,9 +516,20 @@ jobs:
   # validate-change skill, and nothing ran it - so whether it still worked was an
   # article of faith. This runner has a live daemon, which is the one thing a
   # developer machine most often does not.
+  #
+  # Not on every push. The harness is a developer convenience - nothing gates on
+  # it, and no job needs it - but the build is the most expensive thing in this
+  # file and the least predictable: it apt-gets inside the container, and one run
+  # spent twenty minutes inside a single 'apt-get update' because an Ubuntu mirror
+  # was crawling. Paying that on every branch push, to re-prove a script that only
+  # changes when someone edits it, is the wrong trade. Once per pull request, and
+  # on demand, is where the cost buys something.
   # ---------------------------------------------------------------------------
   docker-harness:
     name: The Docker test harness still runs
+    if: >-
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_dispatch' && inputs.task == 'validate')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

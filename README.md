@@ -654,7 +654,7 @@ The two jobs that publish something stay manual — they are gated on the event 
 | `macos` | push, PR | macos-latest | The same validator and exit-code contract on macOS, which is arm64. The README and the scripts have always claimed macOS works; this is what makes that a checked statement. |
 | `release` | manual only | windows-latest | Validate, package the allow-listed files, publish a GitHub Release with a SHA-256 and a generated mod table. |
 | `refresh-lock` | manual only | ubuntu-latest | Query the Nexus API for each mapped mod's current version and open a PR with the diff. Metadata only — needs the `NEXUS_API_KEY` secret; a free account is enough. |
-| `docker-harness` | push, PR | ubuntu-latest | Builds `Dockerfile.test` and runs `run-tests-docker.sh`, so the harness the docs point you at is checked rather than assumed. Also asserts it exits 2 when docker is unusable. |
+| `docker-harness` | PR, manual | ubuntu-latest | Builds `Dockerfile.test` and runs `run-tests-docker.sh`, so the harness the docs point you at is checked rather than assumed. Also asserts it exits 2 when docker is unusable. Not on every push: it is the most expensive job here and nothing gates on it. |
 | `prune-branches` | manual only | ubuntu-latest | Delete branches whose work is already on `main`, each against an explicit rule. Dry run unless `apply` is ticked. |
 | `check-actions` | manual only | ubuntu-latest | Resolves each pinned action SHA against the tag its comment names and fails if any pin is behind. Deliberately not Dependabot — see below. |
 
