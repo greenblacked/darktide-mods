@@ -7,6 +7,7 @@
 
         .\darktide.ps1 status     what is installed, staged and deployed
         .\darktide.ps1 check      what is outdated on Nexus (needs an API key)
+        .\darktide.ps1 links      where to look for updates with no API key at all
         .\darktide.ps1 update     install downloaded archives into staging
         .\darktide.ps1 deploy     push staging into the game folder
         .\darktide.ps1 sync       update + deploy; stops if either step fails
@@ -20,12 +21,17 @@
         .\darktide.ps1 export     zip your whole loadout as a personal backup
         .\darktide.ps1 import     restore a loadout zip and deploy it
 
-    Everything is a dry run until you add -Apply, except 'status' and 'check'
-    which never write anything, and 'lock' which always writes the manifest.
-    The dry-run default includes rollback and restore.
+    Everything is a dry run until you add -Apply, except 'status', 'check' and
+    'links' which never write anything, and 'lock' which always writes the
+    manifest. The dry-run default includes rollback and restore.
 
 .PARAMETER Verb
     Which action to run. See above.
+
+.PARAMETER CheckGitHub
+    With 'links': also ask the public GitHub API for the latest release tag of
+    any mod that has a `githubRepo` in mods-map.json. Off by default, because
+    the rest of 'links' needs no network.
 
 .PARAMETER SyncIdsFromMap
     With 'lock': copy non-null modId/url values from mods-map.json into the
@@ -53,16 +59,22 @@
 .EXAMPLE
     .\darktide.ps1 restore -Apply
     Restores the newest deploy backup into the game mods folder.
+
+.EXAMPLE
+    .\darktide.ps1 links
+    Every mod and its Nexus page, so checking by hand is a list of links. No key,
+    no network.
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('init', 'status', 'check', 'update', 'deploy', 'sync', 'rollback', 'restore', 'lock',
-                 'loader', 'export', 'import', 'help')]
+    [ValidateSet('init', 'status', 'check', 'links', 'update', 'deploy', 'sync', 'rollback', 'restore',
+                 'lock', 'loader', 'export', 'import', 'help')]
     [string]   $Verb = 'help',
 
     [switch]   $Apply,
+    [switch]   $CheckGitHub,
     [switch]   $Mirror,
     [switch]   $InstallLoader,
     [switch]   $RunToggle,
@@ -94,8 +106,9 @@ $Exporter = Join-Path $PSScriptRoot 'Export-DarktideLoadout.ps1'
 $Importer = Join-Path $PSScriptRoot 'Import-DarktideLoadout.ps1'
 $Initer   = Join-Path $PSScriptRoot 'Initialize-DarktideConfig.ps1'
 $Loaderer = Join-Path $PSScriptRoot 'Install-DarktideLoader.ps1'
+$Finder   = Join-Path $PSScriptRoot 'Find-ModUpdates.ps1'
 
-foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer)) {
+foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder)) {
     if (-not (Test-Path -LiteralPath $s)) { throw "Missing script: $s" }
 }
 
@@ -110,6 +123,14 @@ if ($Verb -eq 'init') {
 
 if ($Verb -eq 'help') {
     Get-Help -Full $PSCommandPath | Out-String | Write-Host
+    return
+}
+
+# 'links' reads the lockfile and mods-map only. Neither lives in config.json, and
+# someone with no API key is exactly the person least likely to have finished setup.
+if ($Verb -eq 'links') {
+    Write-Head 'Where to check for updates'
+    & $Finder -CheckGitHub:$CheckGitHub -Only $Only -Skip $Skip -OutFile $OutFile
     return
 }
 

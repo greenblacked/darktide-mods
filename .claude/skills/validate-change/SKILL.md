@@ -36,7 +36,7 @@ and this setup runs without one. Treat it as informational, not as a task.
 .\Invoke-Tests.ps1 -Output Detailed   # per-test output
 ```
 
-Roughly 170 tests across 9 files (168 as this was written), all sandboxed under
+Roughly 190 tests across 13 files (192 as this was written), all sandboxed under
 `$env:TEMP`. They build a fake game folder, a fake staging tree and real zip archives,
 and touch nothing real and nothing networked. Safe to run at any time.
 
@@ -178,6 +178,11 @@ It builds `Dockerfile.test` and, in a Linux PowerShell container, runs:
 2. `Invoke-Tests.ps1` — expect exit **3**
 3. `Invoke-Tests.ps1 -SkipValidator` — expect exit **3**
 4. `Invoke-Tests.ps1 -AllowNonWindows -Path Lock -SkipValidator` — expect exit **0**
+
+`Lock`, `Attribution`, `Package` and `FindUpdates` are the suites that hold up off
+Windows: they never build a game folder or resolve a `\`-separated archive entry, so a
+failure in one of them is a real failure rather than the platform. Everything else in
+the suite is Windows-only and its Linux result means nothing either way.
 
 Exit 2 means docker is not on PATH. `./run-tests-docker.sh full` is the explicit
 "expect ~70 environmental failures" mode. Do not treat it as a pass/fail gate, and

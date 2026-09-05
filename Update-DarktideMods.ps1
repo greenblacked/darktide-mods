@@ -614,18 +614,24 @@ function Resolve-ModIds {
             }
         }
 
-        # Never clobber a user-set 'pinned' flag on an entry we are only filling in.
+        # This pass owns four fields and rewrites the entry around them. Everything else
+        # on it was put there by hand - 'pinned', 'githubRepo', a note to self - so carry
+        # it across rather than naming each one here; the next field added elsewhere
+        # would otherwise be silently dropped the first time someone runs -Resolve.
+        $prev = $(if ($Map.ContainsKey($m.Folder)) { $Map[$m.Folder] } else { $null })
         $wasPinned = $false
-        if ($Map.ContainsKey($m.Folder)) {
-            $prev = $Map[$m.Folder]
-            if ($prev.PSObject.Properties.Name -contains 'pinned') { $wasPinned = [bool]$prev.pinned }
-        }
+        if ($prev -and $prev.PSObject.Properties.Name -contains 'pinned') { $wasPinned = [bool]$prev.pinned }
 
         $entry = [ordered]@{
             modId  = $(if ($id) { [int]$id } else { $null })
             name   = $m.DisplayName
             note   = $(if ($id) { '' } else { "unresolved - find the id at https://www.nexusmods.com/games/$Domain/mods?keyword=$([uri]::EscapeDataString($m.DisplayName))" })
             pinned = $wasPinned
+        }
+        if ($prev) {
+            foreach ($p in $prev.PSObject.Properties) {
+                if (-not $entry.Contains($p.Name)) { $entry[$p.Name] = $p.Value }
+            }
         }
         $Map[$m.Folder] = [pscustomobject]$entry
         if ($id) { $resolved++; Write-Log "Mapped $($m.Folder) -> mod $id" 'OK' }

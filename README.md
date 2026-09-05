@@ -1,7 +1,7 @@
 # darktide-mods
 
 [![CI](https://github.com/greenblacked/darktide-mods/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/greenblacked/darktide-mods/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-168%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-192%20passing-brightgreen)](tests/)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%20%7C%207-5391FE)](https://learn.microsoft.com/powershell/)
 [![License: MIT](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
@@ -240,6 +240,7 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 | `loader` | Install or update the Darktide Mod Loader and patch the bundle. |
 | `status` | Staged vs deployed, drift, loader state, backup sets. Read-only. |
 | `check` | Ask Nexus what's outdated. Needs an API key. Read-only. |
+| `links` | Where to look when you have no key: the Nexus page for every mod, plus the latest GitHub release tag for any mod mapped to a repository. Read-only. |
 | `update` | Install newer archives from your download folder into staging. |
 | `deploy` | Push staging into the game folder. |
 | `sync` | `update` then `deploy`, then refresh the lockfile. Stops if a step fails. |
@@ -261,6 +262,8 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 .\darktide.ps1 deploy -Apply -RunToggle                   # re-patch only, loader already present
 .\darktide.ps1 update -Apply -Force -Only NumericUI         # reinstall or downgrade one mod
 .\darktide.ps1 lock -SyncIdsFromMap                        # push mods-map ids into the lockfile
+.\darktide.ps1 links -OutFile updates.md                   # the check-by-hand list, as markdown
+.\darktide.ps1 links -CheckGitHub                          # ...and ask GitHub for release tags
 ```
 
 ---
@@ -437,17 +440,47 @@ One folder only:
 
 ### 6. When you want to look on Nexus yourself
 
-Local check cannot see a version you never downloaded. Use the lockfile as a list of
-pages, not as live Nexus data:
+Local check cannot see a version you never downloaded. `links` turns the lockfile into
+the list of pages to open, so checking by hand is 45 links rather than 45 searches:
 
 ```powershell
-.\darktide.ps1 status
-Get-Content .\darktide-modpack.lock.json
+.\darktide.ps1 links                        # print the list
+.\darktide.ps1 links -OutFile updates.md    # ...and keep it as markdown
 ```
 
-Each entry has the version this tool last installed and a `url` to the author's page.
-Open the page, download if Nexus shows newer, leave the filename alone, run `update`
-again.
+It touches nothing and needs no key. Each row is the version this tool last installed
+and the author's page. Open the page, download if Nexus shows newer, leave the filename
+alone, run `update` again. A mod with no `modId` in the lockfile says so rather than
+getting a guessed link.
+
+#### The one upstream that answers with no key at all
+
+Some mods are also published on GitHub, and the release endpoint there is public. Put
+the repository on the mod's `mods-map.json` entry:
+
+```json
+"some_mod": { "modId": 447, "githubRepo": "author/some-mod" }
+```
+
+and `links -CheckGitHub` will fetch the latest release tag for it:
+
+```powershell
+.\darktide.ps1 links -CheckGitHub
+```
+
+Nothing is populated out of the box — a wrong repository is worse than no repository,
+and only you can confirm that a given mod's GitHub project is really the same thing as
+its Nexus page. Add them as you verify them.
+
+The status column says `same` or `differs`, never “newer”. A GitHub tag and a Nexus
+version string are not guaranteed to share a scheme for the same mod — the tag may be
+`v2.15.0` where Nexus says `2.15`, or the release may lag the Nexus upload entirely —
+so it shows you both and you decide. Unauthenticated GitHub allows 60 requests an hour
+per address; set `GITHUB_TOKEN` in the environment to raise that. Like `NEXUS_API_KEY`
+it is read from the environment only, never a parameter.
+
+This still does not download anything. Nothing in this repository can — see the note on
+`/download_link.json` above.
 
 After a game patch the same local path applies: get the new loader and DMF zips first,
 then:
@@ -637,6 +670,10 @@ What it covers:
 | `tests/Export.Tests.ps1` | The loadout archive: every mod included, forward-slash entry names so it opens on any tool, no overwrite without `-Force`, never written inside the folder it's archiving. |
 | `tests/Import.Tests.ps1` | Export → import round trip onto an empty machine, replacing an existing install without merging stale files, traversal archives refused, and restore-plus-deploy in one run. |
 | `tests/Dispatcher.Tests.ps1` | `rollback` / `restore` without `-Apply` write nothing; with `-Apply` they reach the updater and deployer; `sync` does not deploy when update fails. |
+| `tests/UpgradeWorkflow.Tests.ps1` | The whole upgrade, in order, through `darktide.ps1`: dry run, `update -Apply` into staging only, `deploy -Apply` to make it live, `lock`, then rollback — including the two properties that look like bugs until you know staging is the source of truth. |
+| `tests/FindUpdates.Tests.ps1` | The `links` list: a page for every mod with an id, a built one where the lockfile has no `url`, `no Nexus id` rather than a guess, `-Only` / `-Skip` / `-OutFile`, a malformed `githubRepo` reported and ignored, `same` vs `differs` (never “newer”), and a mocked GitHub call whose failures stay distinguishable. |
+| `tests/Attribution.Tests.ps1` | The validator's attribution checks actually fire — proven by feeding them content that must fail, so a check cannot rot into a no-op unnoticed. |
+| `tests/Package.Tests.ps1` | The release package: only allow-listed files, no mod content or config, the archive builds and its manifest matches `-ListOnly`. |
 
 ---
 
@@ -690,12 +727,13 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser
 | `Install-DarktideLoader.ps1` | Installs/updates the mod loader, manages the bundle patch. |
 | `Export-DarktideLoadout.ps1` | Packs your loadout into one zip (local backup). |
 | `Import-DarktideLoadout.ps1` | Restores a loadout zip and deploys it. |
+| `Find-ModUpdates.ps1` | The `links` verb: Nexus pages for every mod, and GitHub release tags for mods mapped to a repository. No key, no writes. |
 | `Test-Modpack.ps1` | Repository validator, used by CI. |
 | `Invoke-Tests.ps1` | Runs the Pester suite, then the validator. |
 | `tests/` | Pester tests. Sandboxed — no game, no key, no network. |
 | `.claude/skills/` | Repo skills for coding agents: how to validate a change, the safety invariants, and a script that sets up a test environment from scratch. |
 | `config.example.json` | Config template. Copy to `config.json` (gitignored). |
-| `mods-map.json` | Folder → Nexus mod ID, plus `pinned` flags. |
+| `mods-map.json` | Folder → Nexus mod ID, plus `pinned` flags and an optional `githubRepo`. |
 | `darktide-modpack.lock.json` | The loadout manifest. |
 
 ---
