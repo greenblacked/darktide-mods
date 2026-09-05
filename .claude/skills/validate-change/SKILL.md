@@ -36,7 +36,7 @@ and this setup runs without one. Treat it as informational, not as a task.
 .\Invoke-Tests.ps1 -Output Detailed   # per-test output
 ```
 
-Roughly 190 tests across 13 files (192 as this was written), all sandboxed under
+Roughly 250 tests across 13 files (250 as this was written, counted from the windows-latest job), all sandboxed under
 `$env:TEMP`. They build a fake game folder, a fake staging tree and real zip archives,
 and touch nothing real and nothing networked. Safe to run at any time.
 
@@ -49,7 +49,7 @@ Its exit codes are the thing to read, not the last line of output:
 | 3 | nothing failed, but the Pester suite was skipped because this is not Windows |
 
 **3 is not success.** It means the change is unverified — the validator passed and the
-153 tests never executed. Off Windows that is the code you get by default, which is the
+suite never executed. Off Windows that is the code you get by default, which is the
 point: a script or a habit that treats 0-or-nothing as "green" cannot mistake it for a
 passing suite.
 

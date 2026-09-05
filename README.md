@@ -1,7 +1,7 @@
 # darktide-mods
 
 [![CI](https://github.com/greenblacked/darktide-mods/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/greenblacked/darktide-mods/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-192%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-250%20passing-brightgreen)](tests/)
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%20%7C%207-5391FE)](https://learn.microsoft.com/powershell/)
 [![License: MIT](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 

@@ -6,7 +6,7 @@
 #   - Invoke-Tests.ps1 -AllowNonWindows -Path Lock, the one Pester file that is
 #     genuinely platform-independent.
 #
-# What it cannot give you: the other ~143 Pester tests. They assert Windows
+# What it cannot give you: the other ~225 Pester tests. They assert Windows
 # semantics (robocopy, $env:USERPROFILE, '\'-separated paths) on purpose. A Linux
 # container is still Linux; see .claude/skills/validate-change/SKILL.md.
 #
