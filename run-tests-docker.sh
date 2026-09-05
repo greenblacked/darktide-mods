@@ -8,7 +8,8 @@
 #   ./run-tests-docker.sh shell        # interactive pwsh in the container
 #   ./run-tests-docker.sh full         # the whole suite, expect ~70 environmental failures
 #
-# Exit codes: 0 everything asked for passed, 1 something failed, 2 docker missing.
+# Exit codes: 0 everything asked for passed, 1 something failed, 2 docker unusable
+# (not installed, or installed but the daemon is not running).
 #
 # This is NOT the full gate. The Pester suite is Windows-only by construction and a
 # Linux container does not change that. See .claude/skills/validate-change/SKILL.md.
@@ -19,7 +20,19 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMAGE="${IMAGE:-darktide-mods-test}"
 MODE="${1:-all}"
 
-command -v docker >/dev/null 2>&1 || { echo "docker not found on PATH" >&2; exit 2; }
+# 'command -v docker' only proves the CLI exists. Docker Desktop installed but not
+# running - the normal state on a Mac until you start it - sails past that check and
+# fails several lines later inside 'docker build', with a raw
+# /var/run/docker.sock connect error and exit 1 rather than the 2 promised above.
+# 'docker info' is the cheapest call that needs the daemon to answer.
+if ! command -v docker >/dev/null 2>&1; then
+    echo "docker not found on PATH" >&2
+    exit 2
+fi
+if ! docker info >/dev/null 2>&1; then
+    echo "docker is installed but the daemon is not responding - start Docker and try again." >&2
+    exit 2
+fi
 
 # Mount read-only. These scripts delete and overwrite files for a living; a check run
 # has no business writing into the checkout, and :ro makes that structural rather than

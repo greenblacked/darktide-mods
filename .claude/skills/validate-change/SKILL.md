@@ -182,7 +182,14 @@ It builds `Dockerfile.test` and, in a Linux PowerShell container, runs:
 3. `Invoke-Tests.ps1 -SkipValidator` — expect exit **3**
 4. `Invoke-Tests.ps1 -AllowNonWindows -Path Lock -SkipValidator` — expect exit **0**
 
-Exit 2 means docker is not on PATH. `./run-tests-docker.sh full` is the explicit
+Exit 2 means docker is unusable - either not on PATH, or installed with the daemon
+not running, which is the normal state on a Mac until you start Docker Desktop. That
+second case used to slip past the check and die inside `docker build` with a raw
+socket error and exit 1; the harness now asks `docker info` before it builds anything.
+CI runs the harness on every pull request and on a manual `validate` run, so whether
+it still works is checked rather than assumed. It is not on every push: the image
+build is the slowest step in the workflow and nothing gates on it.
+`./run-tests-docker.sh full` is the explicit
 "expect ~70 environmental failures" mode. Do not treat it as a pass/fail gate, and
 do not report "tests pass" from a Docker run or from `Invoke-Tests.ps1` exit 3.
 
