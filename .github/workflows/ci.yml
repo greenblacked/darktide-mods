@@ -527,21 +527,36 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Refuse to run without a daemon, and say which it is
+      - name: Refuse to run without docker, with the documented exit code
         shell: bash
         run: |
-          # The contract is exit 2 for "docker unusable". Proving the CLI-present
-          # branch needs a machine with no daemon, which this is not, so assert the
-          # not-installed branch by hiding docker from PATH.
+          # The contract is exit 2 for "docker unusable". Proving the CLI-present,
+          # daemon-stopped branch needs a machine with no daemon, which this is not,
+          # so assert the not-installed branch instead by hiding docker from PATH.
+          #
+          # Hiding it means a PATH holding only what the script needs before the
+          # docker check - dirname; cd and pwd are builtins. Blanking PATH entirely
+          # does not work: the shebang is '/usr/bin/env bash', and env resolves bash
+          # through the PATH it was given, so the script never starts and the step
+          # measures 127 from env rather than anything about docker. Calling bash by
+          # absolute path is what makes the restricted PATH apply to the script and
+          # not to starting it.
+          probe="$RUNNER_TEMP/nodocker-bin"
+          mkdir -p "$probe"
+          ln -sf "$(command -v dirname)" "$probe/dirname"
+          bash_bin="$(command -v bash)"
+
           set +e
-          PATH=/nonexistent "$PWD/run-tests-docker.sh" validate >/tmp/nodocker.log 2>&1
+          env PATH="$probe" "$bash_bin" ./run-tests-docker.sh validate >"$RUNNER_TEMP/nodocker.log" 2>&1
           got=$?
           set -e
           if [ "$got" -ne 2 ]; then
             echo "::error::expected exit 2 with no docker on PATH, got $got"
-            cat /tmp/nodocker.log
+            cat "$RUNNER_TEMP/nodocker.log"
             exit 1
           fi
+          grep -q 'docker not found on PATH' "$RUNNER_TEMP/nodocker.log" || {
+            echo "::error::exit 2 was right but the message was not"; cat "$RUNNER_TEMP/nodocker.log"; exit 1; }
           echo "ok: no docker -> 2"
 
       - name: The harness builds and passes
