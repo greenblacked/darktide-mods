@@ -11,6 +11,17 @@
     'same' or 'differs' and never 'newer'. See the note in the script.
 #>
 
+# The shape Get-LatestGitHubTag reads off Invoke-RestMethod's exception: a Response
+# with a StatusCode. A class rather than a hashtable because 'throw' of anything
+# that is not an exception gets wrapped, and the wrapper has no Response. Top level
+# because PowerShell classes cannot be declared inside a script block.
+class FakeHttpException : System.Exception {
+    [object] $Response
+    FakeHttpException([int] $code) : base("HTTP $code") {
+        $this.Response = [pscustomobject]@{ StatusCode = $code }
+    }
+}
+
 BeforeAll {
     . (Join-Path $PSScriptRoot 'TestHelpers.ps1')
 
@@ -143,12 +154,21 @@ Describe 'Find-ModUpdates' {
         # Never 'newer'. The two strings are not guaranteed to share a scheme.
 
         It 'calls <installed> and <tag> <expected>' -ForEach @(
-            @{ installed = '2.14.4'; tag = 'v2.14.4'; expected = 'same' }
-            @{ installed = '2.14.4'; tag = '2.14.4';  expected = 'same' }
-            @{ installed = '2.14.4'; tag = 'v2.15.0'; expected = 'differs' }
-            @{ installed = '1.0';    tag = 'v1.0.0';  expected = 'differs' }
-            @{ installed = '';       tag = 'v1.0.0';  expected = 'no local version' }
-            @{ installed = '1.0.0';  tag = '';        expected = 'no release tag' }
+            @{ installed = '2.14.4'; tag = 'v2.14.4';      expected = 'same' }
+            @{ installed = '2.14.4'; tag = '2.14.4';       expected = 'same' }
+            @{ installed = '1.0';    tag = 'v1.0.0';       expected = 'same' }
+            @{ installed = '0.1';    tag = 'v0.1.0';       expected = 'same' }
+            @{ installed = '4.7.06'; tag = 'v4.7.6';       expected = 'same' }
+            @{ installed = '2.14.4'; tag = 'v2.15.0';      expected = 'differs' }
+            # The digit-joining bug: these are the same string once the dots go.
+            @{ installed = '2.14.4'; tag = 'v2.1.44';      expected = 'differs' }
+            @{ installed = '1.2.3';  tag = '12.3';         expected = 'differs' }
+            @{ installed = '1.0.0';  tag = '10.0';         expected = 'differs' }
+            @{ installed = '1.2';    tag = 'v1.20';        expected = 'differs' }
+            # A pre-release is not the release.
+            @{ installed = '2.14.4'; tag = 'v2.14.4-beta'; expected = 'differs' }
+            @{ installed = '';       tag = 'v1.0.0';       expected = 'no local version' }
+            @{ installed = '1.0.0';  tag = '';             expected = 'no release tag' }
         ) {
             Get-VersionComparison -Installed $installed -Tag $tag | Should -Be $expected
         }
@@ -165,13 +185,30 @@ Describe 'Find-ModUpdates' {
             $result.Note | Should -BeNullOrEmpty
         }
 
-        It 'reports a repository with no releases as such, not as an error' {
+        It 'tells HTTP <code> apart as "<note>"' -ForEach @(
+            @{ code = 404; note = 'no releases' }
+            @{ code = 403; note = 'refused (403)' }
+            @{ code = 429; note = 'rate limited (429)' }
+        ) {
+            # A bare throw only ever reaches the default branch. To exercise the
+            # status branches the exception has to carry a Response with a
+            # StatusCode, which is what Invoke-RestMethod's own exception does.
+            $status = $code
+            Mock Invoke-RestMethod { throw [FakeHttpException]::new($status) }
+
+            $result = Get-LatestGitHubTag -Repo 'owner/repo'
+
+            $result.Tag  | Should -BeNullOrEmpty
+            $result.Note | Should -Match ([regex]::Escape($note))
+        }
+
+        It 'reports anything without a status as unreachable' {
             Mock Invoke-RestMethod { throw 'nope' }
 
             $result = Get-LatestGitHubTag -Repo 'owner/repo'
 
             $result.Tag  | Should -BeNullOrEmpty
-            $result.Note | Should -Not -BeNullOrEmpty
+            $result.Note | Should -Match '^unreachable'
         }
 
         It 'never puts the token on the command line' {

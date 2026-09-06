@@ -36,7 +36,7 @@ and this setup runs without one. Treat it as informational, not as a task.
 .\Invoke-Tests.ps1 -Output Detailed   # per-test output
 ```
 
-Roughly 250 tests across 13 files (250 as this was written, counted from the windows-latest job), all sandboxed under
+Roughly 260 tests across 13 files (260 as this was written, counted from the windows-latest job), all sandboxed under
 `$env:TEMP`. They build a fake game folder, a fake staging tree and real zip archives,
 and touch nothing real and nothing networked. Safe to run at any time.
 

@@ -109,8 +109,12 @@ function Get-GitHubRepo {
 
 function Get-VersionComparison {
     <#
-        'same', 'differs', or why neither can be said. Digits only, so 'v2.15.0' and
-        '2.15.0' agree.
+        'same', 'differs', or why neither can be said.
+
+        Compared component by component, the way Compare-ModVersion in
+        Update-DarktideMods.ps1 does, so 'v2.15.0' and '2.15.0' agree and '1.0' and
+        'v1.0.0' agree. Not by joining the digits: that made '2.1.44' and '2.14.4'
+        the same string, and 'same' is the answer that stops someone looking.
 
         It deliberately does not rank them. A GitHub tag and a Nexus version string
         are not guaranteed to be the same scheme for the same mod, so calling one
@@ -122,10 +126,25 @@ function Get-VersionComparison {
     if (-not $Tag)       { return 'no release tag' }
     if (-not $Installed) { return 'no local version' }
 
-    $a = ($Installed -replace '[^0-9]', '')
-    $b = ($Tag       -replace '[^0-9]', '')
-    if ($a -and $a -eq $b) { return 'same' }
-    return 'differs'
+    $na = @([regex]::Matches($Installed, '\d+') | ForEach-Object { [int64]$_.Value })
+    $nb = @([regex]::Matches($Tag,       '\d+') | ForEach-Object { [int64]$_.Value })
+    if ($na.Count -eq 0 -or $nb.Count -eq 0) {
+        return $(if ($Installed.Trim() -eq $Tag.Trim()) { 'same' } else { 'differs' })
+    }
+
+    $len = [Math]::Max($na.Count, $nb.Count)
+    for ($i = 0; $i -lt $len; $i++) {
+        $x = if ($i -lt $na.Count) { $na[$i] } else { 0 }
+        $y = if ($i -lt $nb.Count) { $nb[$i] } else { 0 }
+        if ($x -ne $y) { return 'differs' }
+    }
+
+    # Same numbers, but '2.14.4-beta' is not the release '2.14.4'. Whatever follows
+    # the last digit is the pre-release marker, if there is one.
+    $tailA = ($Installed -replace '^.*\d', '') -replace '[^A-Za-z0-9]', ''
+    $tailB = ($Tag       -replace '^.*\d', '') -replace '[^A-Za-z0-9]', ''
+    if ($tailA -ne $tailB) { return 'differs' }
+    return 'same'
 }
 
 function Get-LatestGitHubTag {

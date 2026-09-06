@@ -602,10 +602,13 @@ jobs:
         run: |
           set -euo pipefail
           stale=0
-          # "owner/repo tag sha" for every pinned use, deduplicated.
+          # "owner/repo tag sha" for every pinned use, deduplicated. The '|| true'
+          # matters: under pipefail a grep with no matches fails the whole
+          # substitution and set -e ends the step before the diagnostic below can
+          # say what happened.
           pins=$(grep -oE 'uses: [^@]+@[0-9a-f]{40}[[:space:]]*#[[:space:]]*[^[:space:]]+' .github/workflows/ci.yml |
                  sed -E 's|uses: ([^@]+)@([0-9a-f]{40})[[:space:]]*#[[:space:]]*(.+)|\1 \3 \2|' |
-                 sort -u)
+                 sort -u || true)
           [ -n "$pins" ] || { echo "::error::no pinned actions found - has the pin format changed?"; exit 1; }
 
           while read -r repo tag pinned; do
