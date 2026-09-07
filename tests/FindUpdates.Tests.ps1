@@ -118,6 +118,28 @@ Describe 'Find-ModUpdates' {
             $text | Should -Match '_no Nexus id_'
         }
 
+        It 'puts the GitHub columns in the markdown once they were fetched' {
+            # The file is what someone opens later, when the 60-an-hour query is gone.
+            Mock Invoke-RestMethod { [pscustomobject]@{ tag_name = 'v9.9.9' } }
+            $f  = New-Fixture -Root $script:Root -Map @{ alpha_mod = @{ githubRepo = 'owner/repo' } }
+            $md = Join-Path $script:Root 'gh.md'
+
+            & $script:Finder -LockPath $f.Lock -MapPath $f.Map -CheckGitHub -OutFile $md *>&1 | Out-Null
+
+            $text = Get-Content -LiteralPath $md -Raw -Encoding UTF8
+            $text | Should -Match '\| Mod \| Installed \| GitHub \| Status \| Page \|'
+            $text | Should -Match 'alpha_mod \| 2\.14\.4 \| v9\.9\.9 \| differs \|'
+        }
+
+        It 'leaves the GitHub columns out of the markdown when nothing asked for them' {
+            $f  = New-Fixture -Root $script:Root
+            $md = Join-Path $script:Root 'plain.md'
+
+            & $script:Finder -LockPath $f.Lock -MapPath $f.Map -OutFile $md *>&1 | Out-Null
+
+            Get-Content -LiteralPath $md -Raw -Encoding UTF8 | Should -Not -Match 'GitHub'
+        }
+
         It 'refuses a lockfile that is not there rather than reporting an empty list' {
             { & $script:Finder -LockPath (Join-Path $script:Root 'absent.json') } |
                 Should -Throw -ExpectedMessage '*No lockfile*'

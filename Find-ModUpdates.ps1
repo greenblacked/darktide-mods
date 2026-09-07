@@ -71,6 +71,14 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# TLS 1.2 - Windows PowerShell 5.1 still defaults to SSL3/TLS1.0 on some builds, and
+# api.github.com refuses anything older. Same block as Update-DarktideMods.ps1; the
+# mocked tests never touch the transport, so this is the one line they cannot see.
+try {
+    [Net.ServicePointManager]::SecurityProtocol =
+        [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+} catch { }
+
 function Write-Info { param([string] $Message) Write-Host $Message }
 function Write-Warn { param([string] $Message) Write-Host $Message -ForegroundColor Yellow }
 
@@ -260,11 +268,23 @@ if ($OutFile) {
     $lines = New-Object System.Collections.Generic.List[string]
     $lines.Add("# Mods to check")
     $lines.Add('')
-    $lines.Add('| Mod | Installed | Page |')
-    $lines.Add('|---|---|---|')
+    if ($CheckGitHub) {
+        $lines.Add('| Mod | Installed | GitHub | Status | Page |')
+        $lines.Add('|---|---|---|---|---|')
+    } else {
+        $lines.Add('| Mod | Installed | Page |')
+        $lines.Add('|---|---|---|')
+    }
     foreach ($row in $rows) {
         $link = if ($row.Page) { "[Nexus]($($row.Page))" } else { '_no Nexus id_' }
-        $lines.Add("| $($row.Mod) | $(if ($row.Installed) { $row.Installed } else { '-' }) | $link |")
+        $inst = if ($row.Installed) { $row.Installed } else { '-' }
+        if ($CheckGitHub) {
+            $gh = if ($row.GitHub) { $row.GitHub } else { '-' }
+            $st = if ($row.Status) { $row.Status } else { '-' }
+            $lines.Add("| $($row.Mod) | $inst | $gh | $st | $link |")
+        } else {
+            $lines.Add("| $($row.Mod) | $inst | $link |")
+        }
     }
     Set-Content -LiteralPath $OutFile -Value $lines -Encoding UTF8
     Write-Info ''

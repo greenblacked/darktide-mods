@@ -3,12 +3,14 @@
 # What this gives you:
 #   - Test-Modpack.ps1 (the validator) with PSScriptAnalyzer present, so the lint
 #     pass actually runs instead of warning that it is missing.
-#   - Invoke-Tests.ps1 -AllowNonWindows -Path Lock, the one Pester file that is
-#     genuinely platform-independent.
+#   - Invoke-Tests.ps1 -AllowNonWindows -Path Lock. Four suites hold up off Windows
+#     (Lock, Attribution, Package, FindUpdates); the harness runs Lock because it is
+#     the one the CI Linux and macOS jobs assert, so a pass here means the same thing
+#     a pass there does.
 #
-# What it cannot give you: the other ~225 Pester tests. They assert Windows
-# semantics (robocopy, $env:USERPROFILE, '\'-separated paths) on purpose. A Linux
-# container is still Linux; see .claude/skills/validate-change/SKILL.md.
+# What it cannot give you: the rest of the suite, roughly 200 tests. They assert
+# Windows semantics (robocopy, $env:USERPROFILE, '\'-separated paths) on purpose. A
+# Linux container is still Linux; see .claude/skills/validate-change/SKILL.md.
 #
 # Base image: pin a Ubuntu tag, not 'latest'. On Apple Silicon, 'latest' has
 # resolved to linux/arm/v7; pwsh then segfaults under qemu. The build and run
