@@ -78,7 +78,8 @@ $Include = @(
     'mods-map.json',
     'darktide-modpack.lock.json',
     'README.md',
-    'LICENSE'
+    'LICENSE',
+    'Compare-DarktideLoadout.ps1'
 )
 
 if ($ListOnly) {

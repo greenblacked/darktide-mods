@@ -20,10 +20,12 @@
         .\darktide.ps1 loader     install or update the Darktide Mod Loader
         .\darktide.ps1 export     zip your whole loadout as a personal backup
         .\darktide.ps1 import     restore a loadout zip and deploy it
+        .\darktide.ps1 diff       how two loadouts differ: lockfile, export zip,
+                                  git:<rev> or current staging
 
-    Everything is a dry run until you add -Apply, except 'status', 'check' and
-    'links' which never write anything, and 'lock' which always writes the
-    manifest. The dry-run default includes rollback and restore.
+    Everything is a dry run until you add -Apply, except 'status', 'check',
+    'links' and 'diff' which never write anything, and 'lock' which always writes
+    the manifest. The dry-run default includes rollback and restore.
 
 .PARAMETER Verb
     Which action to run. See above.
@@ -39,6 +41,14 @@
 
 .PARAMETER Apply
     Actually make changes. Without it you get a plan and nothing else.
+
+.PARAMETER Left
+    With 'diff': the baseline loadout. A lockfile, an export zip, git:<rev> or
+    current. Defaults to the repository lockfile.
+
+.PARAMETER Right
+    With 'diff': the loadout to compare with it. Same forms as -Left. Defaults to
+    current, the staging folder as it is now. Only 'current' needs config.json.
 
 .EXAMPLE
     .\darktide.ps1 sync
@@ -64,13 +74,18 @@
     .\darktide.ps1 links
     Every mod and its Nexus page, so checking by hand is a list of links. No key,
     no network.
+
+.EXAMPLE
+    .\darktide.ps1 diff
+    How staging differs from the committed lockfile. Exits 0 when identical, 1 when
+    not. Add -Left git:HEAD~1 -Right git:HEAD, or a loadout zip, to compare others.
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
     [ValidateSet('init', 'status', 'check', 'links', 'update', 'deploy', 'sync', 'rollback', 'restore',
-                 'lock', 'loader', 'export', 'import', 'help')]
+                 'lock', 'loader', 'export', 'import', 'help', 'diff')]
     [string]   $Verb = 'help',
 
     [switch]   $Apply,
@@ -88,6 +103,8 @@ param(
     [string]   $Source,
     [string]   $GamePath,
     [switch]   $Deploy,
+    [string]   $Left,
+    [string]   $Right,
     [string]   $ConfigPath = (Join-Path $PSScriptRoot 'config.json')
 )
 
@@ -107,8 +124,9 @@ $Importer = Join-Path $PSScriptRoot 'Import-DarktideLoadout.ps1'
 $Initer   = Join-Path $PSScriptRoot 'Initialize-DarktideConfig.ps1'
 $Loaderer = Join-Path $PSScriptRoot 'Install-DarktideLoader.ps1'
 $Finder   = Join-Path $PSScriptRoot 'Find-ModUpdates.ps1'
+$Differ   = Join-Path $PSScriptRoot 'Compare-DarktideLoadout.ps1'
 
-foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder)) {
+foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Differ)) {
     if (-not (Test-Path -LiteralPath $s)) { throw "Missing script: $s" }
 }
 
@@ -132,6 +150,17 @@ if ($Verb -eq 'links') {
     Write-Head 'Where to check for updates'
     & $Finder -CheckGitHub:$CheckGitHub -Only $Only -Skip $Skip -OutFile $OutFile
     return
+}
+
+# 'diff' compares lockfiles and writes nothing but an optional -OutFile. Only a
+# 'current' side needs config.json (for ModsRoot), and the script reads it only
+# then, so comparing two lockfiles, zips or git revisions works before 'init'.
+# The exit code is the answer - 0 identical, 1 different - so pass it on.
+if ($Verb -eq 'diff') {
+    Write-Head 'Comparing loadouts'
+    & $Differ -Left $Left -Right $Right -ConfigPath $ConfigPath -OutFile $OutFile -Force:$Force
+    $code = if (Test-Path Variable:LASTEXITCODE) { $LASTEXITCODE } else { 0 }
+    exit $code
 }
 
 # SyncIdsFromMap only touches the lockfile and mods-map.json - no config, no ModsRoot.
