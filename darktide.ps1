@@ -18,6 +18,10 @@
                                   copy Nexus ids from mods-map.json into the lockfile
         .\darktide.ps1 init       find the game automatically and write config.json
         .\darktide.ps1 loader     install or update the Darktide Mod Loader
+        .\darktide.ps1 loader -PatchOnly
+                                  re-apply the bundle patch after a game update
+        .\darktide.ps1 loader -RestoreBackup
+                                  put a previous loader back from loader_backups
         .\darktide.ps1 export     zip your whole loadout as a personal backup
         .\darktide.ps1 import     restore a loadout zip and deploy it
 
@@ -40,6 +44,16 @@
 .PARAMETER Apply
     Actually make changes. Without it you get a plan and nothing else.
 
+.PARAMETER PatchOnly
+    With 'loader': re-apply the bundle patch with the dtkit-patch.exe already in the
+    game folder, after a Steam update replaced the bundle database. No download, no
+    file copy, never the toggle. Does nothing if the database is still the one it
+    patched last time.
+
+.PARAMETER RestoreBackup
+    With 'loader': put a previous loader back from loader_backups. The dry run lists
+    the backups; -BackupSet picks one by part of its name, otherwise the newest.
+
 .EXAMPLE
     .\darktide.ps1 sync
     Dry run of the full pipeline - shows what would be installed and deployed.
@@ -59,6 +73,10 @@
 .EXAMPLE
     .\darktide.ps1 restore -Apply
     Restores the newest deploy backup into the game mods folder.
+
+.EXAMPLE
+    .\darktide.ps1 loader -PatchOnly -Apply
+    Mods stopped loading after a Darktide update: re-patch the bundle database.
 
 .EXAMPLE
     .\darktide.ps1 links
@@ -88,6 +106,8 @@ param(
     [string]   $Source,
     [string]   $GamePath,
     [switch]   $Deploy,
+    [switch]   $PatchOnly,
+    [switch]   $RestoreBackup,
     [string]   $ConfigPath = (Join-Path $PSScriptRoot 'config.json')
 )
 
@@ -316,8 +336,12 @@ switch ($Verb) {
     }
 
     'loader' {
-        Write-Head "Mod loader$(if (-not $Apply) { ' (dry run)' })"
-        & $Loaderer -ConfigPath $ConfigPath -Source $Source -Apply:$Apply -Force:$Force -Confirm:$false
+        $what = if ($PatchOnly) { 'Re-patching the bundle database' }
+                elseif ($RestoreBackup) { 'Restoring a mod loader backup' }
+                else { 'Mod loader' }
+        Write-Head "$what$(if (-not $Apply) { ' (dry run)' })"
+        & $Loaderer -ConfigPath $ConfigPath -Source $Source -Apply:$Apply -Force:$Force `
+                    -PatchOnly:$PatchOnly -RestoreBackup:$RestoreBackup -BackupSet $BackupSet -Confirm:$false
         return
     }
 
