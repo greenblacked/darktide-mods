@@ -576,4 +576,5 @@ if ($backupZip) {
 
 Write-Host ''
 Write-Warn 'Reminder: after any Darktide patch, Steam replaces the bundle database and mods stop loading.'
-Write-Warn "Fix with:  cd `"$game`"  ;  .\toggle_darktide_mods.bat"
+Write-Warn 'Fix with:  .\darktide.ps1 loader -PatchOnly -Apply'
+Write-Warn 'Not the toggle bat: it flips state, so running it a second time turns every mod off.'
