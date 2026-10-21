@@ -250,6 +250,7 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 | `lock -SyncIdsFromMap` | Copy non-null Nexus ids (and urls) from `mods-map.json` into the existing lockfile. No `ModsRoot` needed; versions and hashes stay put. |
 | `export` | Zip your whole loadout into one file, as a personal backup. |
 | `import` | Restore a loadout zip into staging and deploy it, in one step. |
+| `diff` | How two loadouts differ: mods added or removed, version changes, mods changed in place, load-order moves. Each side is a lockfile, an export zip, `git:<rev>` or `current`; plain `diff` compares staging with the committed lockfile. Read-only. See [Comparing two loadouts](#comparing-two-loadouts). |
 
 ### Useful switches
 
@@ -264,6 +265,8 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 .\darktide.ps1 lock -SyncIdsFromMap                        # push mods-map ids into the lockfile
 .\darktide.ps1 links -OutFile updates.md                   # the check-by-hand list, as markdown
 .\darktide.ps1 links -CheckGitHub                          # ...and ask GitHub for release tags
+.\darktide.ps1 diff -Left git:HEAD~1 -Right git:HEAD       # what the last commit changed in the lockfile
+.\darktide.ps1 diff -OutFile diff.md                       # staging vs lockfile, also written as markdown
 ```
 
 ---
@@ -615,6 +618,56 @@ in the artifact.
 
 ---
 
+## Comparing two loadouts
+
+`diff` compares two lockfiles and tells you what changed between them. It writes nothing
+except an `-OutFile` you ask for.
+
+```powershell
+.\darktide.ps1 diff                                         # staging now vs the committed lockfile
+.\darktide.ps1 diff -Left 'E:\darktide-loadout-20260829.zip' # an old export vs staging now
+.\darktide.ps1 diff -Left git:HEAD~5 -Right git:HEAD          # what five commits changed
+.\darktide.ps1 diff -Left a.lock.json -Right b.lock.json -OutFile diff.json
+```
+
+Each side can be:
+
+| Form | Read from |
+|---|---|
+| a path to a `.json` file | that lockfile |
+| a path to a `.zip` file | the `darktide-modpack.lock.json` at the root of an `export` archive, read straight out of the zip. Nothing is extracted. |
+| `git:<rev>` | the lockfile as committed at that revision (`git cat-file`). Nothing is checked out. Needs `git` on `PATH`. |
+| `current` | your staging folder as it is now. A lockfile is generated into a temporary file and deleted afterwards; the repository's lockfile is not touched. |
+
+`-Left` defaults to the repository lockfile and `-Right` to `current`. Only `current` needs
+`config.json`, so comparing two files, zips or revisions works before `init`.
+
+What it reports:
+
+- **added / removed** — mods present on one side only.
+- **version** — both versions known and different. Compared number by number, so `1.0` and
+  `v1.0.0` are the same version.
+- **changed in place** — the content hash differs but the version is the same or unknown. On a
+  setup where most mods record no version, this is how an update shows up.
+- **mod id / url / name** — the recorded Nexus id, page or display name changed.
+- **load order** — entries added, removed, or moved. A move is judged by relative order, so
+  inserting one mod does not list every mod after it as moved.
+
+A missing value is unknown, not a change. Most mods here have no recorded version, so a version
+that appears is listed as *now known* and one that disappears as *now unknown*. Neither counts
+as a difference.
+
+The exit code is `0` when the two are identical and `1` when they differ, so a script can branch
+on it. A side that cannot be read stops with an error, which is also non-zero, so check for the
+error (or for the `-OutFile` you asked for) if you need to tell the two apart. `-OutFile` takes a
+`.json` name for the full result, with every list present even when empty, or a `.md` name for a
+table. It will not overwrite a file without `-Force`, and never one of its own inputs.
+
+Both sides are treated as untrusted input: a lockfile over 512 KB, invalid JSON, a
+`schemaVersion` other than `1`, or a malformed `mods` list is refused with the reason.
+
+---
+
 ## Testing
 
 ```powershell
@@ -674,6 +727,7 @@ What it covers:
 | `tests/FindUpdates.Tests.ps1` | The `links` list: a page for every mod with an id, a built one where the lockfile has no `url`, `no Nexus id` rather than a guess, `-Only` / `-Skip` / `-OutFile`, a malformed `githubRepo` reported and ignored, `same` vs `differs` (never “newer”), and a mocked GitHub call whose failures stay distinguishable. |
 | `tests/Attribution.Tests.ps1` | The validator's attribution checks actually fire — proven by feeding them content that must fail, so a check cannot rot into a no-op unnoticed. |
 | `tests/Package.Tests.ps1` | The release package: only allow-listed files, no mod content or config, the archive builds and its manifest matches `-ListOnly`. |
+| `tests/LoadoutDiff.Tests.ps1` | `diff`: added, removed, version bumps, changes in place, a null version reported as *now known* rather than changed, one insertion not flagging later entries as moved, identical inputs giving exit `0` and empty lists under stable keys, reading an export zip without extracting it, malformed, oversized and wrong-schema input refused, `current` against a fake staging folder with the repository lockfile left byte-identical, and `git:` revisions (skipped, not passed, where git is missing). |
 
 ---
 
@@ -737,6 +791,7 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser
 | `Export-DarktideLoadout.ps1` | Packs your loadout into one zip (local backup). |
 | `Import-DarktideLoadout.ps1` | Restores a loadout zip and deploys it. |
 | `Find-ModUpdates.ps1` | The `links` verb: Nexus pages for every mod, and GitHub release tags for mods mapped to a repository. No key, no writes. |
+| `Compare-DarktideLoadout.ps1` | The `diff` verb: compares two loadouts (lockfile, export zip, `git:<rev>` or current staging). Read-only. |
 | `Test-Modpack.ps1` | Repository validator, used by CI. |
 | `Invoke-Tests.ps1` | Runs the Pester suite, then the validator. |
 | `tests/` | Pester tests. Sandboxed — no game, no key, no network. |
