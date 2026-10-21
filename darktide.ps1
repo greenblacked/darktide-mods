@@ -20,6 +20,7 @@
         .\darktide.ps1 loader     install or update the Darktide Mod Loader
         .\darktide.ps1 export     zip your whole loadout as a personal backup
         .\darktide.ps1 import     restore a loadout zip and deploy it
+        .\darktide.ps1 errors     which mod most likely caused the last crash or error
 
     Everything is a dry run until you add -Apply, except 'status', 'check' and
     'links' which never write anything, and 'lock' which always writes the
@@ -39,6 +40,14 @@
 
 .PARAMETER Apply
     Actually make changes. Without it you get a plan and nothing else.
+
+.PARAMETER LogDir
+    With 'errors': the folder holding Darktide's console logs. Defaults to
+    ConsoleLogDir in config.json, then %APPDATA%\Fatshark\Darktide\console_logs.
+    With -LogDir, 'errors' needs no config.json at all.
+
+.PARAMETER Last
+    With 'errors': how many of the newest console logs to read. Default 1.
 
 .EXAMPLE
     .\darktide.ps1 sync
@@ -64,13 +73,18 @@
     .\darktide.ps1 links
     Every mod and its Nexus page, so checking by hand is a list of links. No key,
     no network.
+
+.EXAMPLE
+    .\darktide.ps1 errors -Last 2 -OutFile errors.md
+    Reads the two newest console logs and names the mods most likely behind their
+    errors. Read-only; the report goes to errors.md as well.
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
     [ValidateSet('init', 'status', 'check', 'links', 'update', 'deploy', 'sync', 'rollback', 'restore',
-                 'lock', 'loader', 'export', 'import', 'help')]
+                 'lock', 'loader', 'export', 'import', 'help', 'errors')]
     [string]   $Verb = 'help',
 
     [switch]   $Apply,
@@ -88,6 +102,9 @@ param(
     [string]   $Source,
     [string]   $GamePath,
     [switch]   $Deploy,
+    [string]   $LogDir,
+    [ValidateRange(1, 1000)]
+    [int]      $Last = 1,
     [string]   $ConfigPath = (Join-Path $PSScriptRoot 'config.json')
 )
 
@@ -107,8 +124,9 @@ $Importer = Join-Path $PSScriptRoot 'Import-DarktideLoadout.ps1'
 $Initer   = Join-Path $PSScriptRoot 'Initialize-DarktideConfig.ps1'
 $Loaderer = Join-Path $PSScriptRoot 'Install-DarktideLoader.ps1'
 $Finder   = Join-Path $PSScriptRoot 'Find-ModUpdates.ps1'
+$Blamer   = Join-Path $PSScriptRoot 'Get-DarktideErrors.ps1'
 
-foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder)) {
+foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Blamer)) {
     if (-not (Test-Path -LiteralPath $s)) { throw "Missing script: $s" }
 }
 
@@ -138,6 +156,15 @@ if ($Verb -eq 'links') {
 if ($Verb -eq 'lock' -and $SyncIdsFromMap) {
     Write-Head 'Syncing lockfile Nexus ids from mods-map'
     & $Locker -SyncIdsFromMap
+    return
+}
+
+# 'errors' only reads the console logs. config.json is optional - the script reads it
+# if it is there, for staging names and ConsoleLogDir - so it works on a machine that
+# never ran init, or on logs someone sent you with -LogDir.
+if ($Verb -eq 'errors') {
+    Write-Head 'Reading the game console logs'
+    & $Blamer -ConfigPath $ConfigPath -LogDir $LogDir -Last $Last -OutFile $OutFile -Force:$Force
     return
 }
 
