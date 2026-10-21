@@ -412,6 +412,20 @@ Describe 'Get-DarktideErrors' {
             (Get-Content -LiteralPath $json -Raw) | Should -Not -Match 'OtherPerson|Jane|Doe'
         }
 
+        It 'does not garble a mod folder that starts with the user name' {
+            $env:USERPROFILE = 'C:\Users\alpha'
+            $env:USERNAME    = 'alpha'
+            $null = New-ConsoleLog -Dir $script:Logs -Name 'console.log' -Lines ($script:Noise + @(
+                '12:00:02.000 <<Lua Error>>mods/alpha_mod/scripts/mods/alpha_mod/alpha_mod.lua:12: player alpha has no profile<</Lua Error>>'))
+            $json = Join-Path $script:OutRoot 'r.json'
+            $out  = Invoke-Blame -Extra @{ OutFile = $json }
+            $out | Should -Match 'alpha_mod'
+            $out | Should -Not -Match '<user>_mod'
+            $first = @((Read-JsonReport -Path $json).offenders | Where-Object { $_.folder -eq 'alpha_mod' })[0].firstError
+            $first | Should -BeLike '*mods/alpha_mod/*'
+            $first | Should -BeLike '*player <user> has no profile*'
+        }
+
         It 'cuts the first error line to 200 characters' {
             $long = '12:00:02.000 <<Lua Error>>mods/alpha_mod/scripts/mods/alpha_mod/alpha_mod.lua:9: ' + ('x' * 500)
             $null = New-ConsoleLog -Dir $script:Logs -Name 'console.log' -Lines ($script:Noise + $long)

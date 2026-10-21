@@ -189,7 +189,8 @@ function Protect-Text {
     $names = @($script:UserNames | Sort-Object Length -Descending)
     if ($names.Count -gt 0) {
         $alt = ($names | ForEach-Object { [regex]::Escape($_) }) -join '|'
-        $rxName = "(?i)(?<![A-Za-z0-9])(?:$alt)(?![A-Za-z0-9])"
+        # '_' counts as part of a word, so a user called 'alpha' leaves the folder 'alpha_mod' alone.
+        $rxName = "(?i)(?<![A-Za-z0-9_])(?:$alt)(?![A-Za-z0-9_])"
         $parts = [regex]::Split($out, '(%USERPROFILE%|<user>)')
         for ($i = 0; $i -lt $parts.Count; $i++) {
             if ($parts[$i] -eq '%USERPROFILE%' -or $parts[$i] -eq '<user>') { continue }
