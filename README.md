@@ -250,6 +250,7 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 | `lock -SyncIdsFromMap` | Copy non-null Nexus ids (and urls) from `mods-map.json` into the existing lockfile. No `ModsRoot` needed; versions and hashes stay put. |
 | `export` | Zip your whole loadout into one file, as a personal backup. |
 | `import` | Restore a loadout zip into staging and deploy it, in one step. |
+| `errors` | Read the game's newest console log and name the mod most likely behind its errors. Works without `config.json` given `-LogDir`. Read-only. |
 
 ### Useful switches
 
@@ -264,6 +265,8 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 .\darktide.ps1 lock -SyncIdsFromMap                        # push mods-map ids into the lockfile
 .\darktide.ps1 links -OutFile updates.md                   # the check-by-hand list, as markdown
 .\darktide.ps1 links -CheckGitHub                          # ...and ask GitHub for release tags
+.\darktide.ps1 errors -Last 3 -OutFile errors.md           # culprits from the three newest console logs
+.\darktide.ps1 errors -LogDir 'D:\from-a-friend\logs'      # someone else's logs, no config needed
 ```
 
 ---
@@ -550,7 +553,9 @@ The order matters:
 # 3. Then the rest
 .\darktide.ps1 sync -Apply
 
-# 4. If the game crashes on load, bisect: comment out half of
+# 4. If the game crashes on load, ask the log which mod it most likely was:
+.\darktide.ps1 errors
+#    If that names nothing useful, bisect: comment out half of
 #    mod_load_order.txt with '--' and restart.
 
 # 5. If one mod is the culprit and has no update yet:
@@ -560,6 +565,36 @@ The order matters:
 
 Your mod **settings survive all of this** — DMF stores them in `%APPDATA%\Fatshark\Darktide\`,
 not in the mod folders.
+
+### Which mod crashed the game
+
+```powershell
+.\darktide.ps1 errors                       # the newest console log
+.\darktide.ps1 errors -Last 3               # the three newest, oldest first
+.\darktide.ps1 errors -OutFile errors.md    # also as markdown (or .json) for a bug report
+```
+
+It reads the end of the game's console log (the last 20,000 lines of each file), picks
+out the error and stack-traceback lines, and ranks the mods they name: by path
+(`mods/<folder>/`, `scripts/mods/<folder>/`) or by a DMF tag such as `[Numeric UI]`.
+Names are matched against your staging folder and the lockfile, so each row carries the
+version and Nexus page where the lockfile has them. DMF itself is only blamed when an
+error names no other mod, because it sits in the stack of every hook.
+
+Treat the top of the list as where to look first, not a verdict: a mod that hooks
+another mod's function can make its error show up in the other mod's stack. If the log
+has no mod lines at all, the loader probably did not run, and the report says to check
+the bundle patch (`.\darktide.ps1 patchcheck`, or re-patch with `.\darktide.ps1 loader -Apply`).
+
+Logs contain your Windows profile path and user name. Both are replaced with
+`%USERPROFILE%` and `<user>` in everything `errors` prints or writes, so the report is
+safe to paste. It writes nothing except the `-OutFile` you ask for, refuses to put that
+inside the game folder `config.json` names, and uses no network.
+
+The log location, `%APPDATA%\Fatshark\Darktide\console_logs`, and the log format are
+not verified by anything in this repository. If your logs are elsewhere, pass `-LogDir`
+or add `"ConsoleLogDir"` to `config.json`. The patterns it matches live in one commented
+table at the top of `Get-DarktideErrors.ps1`, so a format change is a one-line fix.
 
 ---
 
@@ -674,6 +709,7 @@ What it covers:
 | `tests/FindUpdates.Tests.ps1` | The `links` list: a page for every mod with an id, a built one where the lockfile has no `url`, `no Nexus id` rather than a guess, `-Only` / `-Skip` / `-OutFile`, a malformed `githubRepo` reported and ignored, `same` vs `differs` (never “newer”), and a mocked GitHub call whose failures stay distinguishable. |
 | `tests/Attribution.Tests.ps1` | The validator's attribution checks actually fire — proven by feeding them content that must fail, so a check cannot rot into a no-op unnoticed. |
 | `tests/Package.Tests.ps1` | The release package: only allow-listed files, no mod content or config, the archive builds and its manifest matches `-ListOnly`. |
+| `tests/ErrorBlame.Tests.ps1` | The `errors` verb against synthetic console logs: ranking and counts, a path fragment, a DMF tag carrying the display name, a folder name with brackets, DMF not blamed for a hook, newest log by write time, `-Last`, tail-only reading, a missing folder, an empty log, the no-mod-lines hint, redaction of the profile path and user name (before truncation), the 200-character cut, `-OutFile` json/md with `-Force`, and nothing written anywhere else. |
 
 ---
 
@@ -737,6 +773,7 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser
 | `Export-DarktideLoadout.ps1` | Packs your loadout into one zip (local backup). |
 | `Import-DarktideLoadout.ps1` | Restores a loadout zip and deploys it. |
 | `Find-ModUpdates.ps1` | The `links` verb: Nexus pages for every mod, and GitHub release tags for mods mapped to a repository. No key, no writes. |
+| `Get-DarktideErrors.ps1` | The `errors` verb: reads the game's console logs and ranks the mods most likely behind their errors. Read-only, redacts your user name and profile path. |
 | `Test-Modpack.ps1` | Repository validator, used by CI. |
 | `Invoke-Tests.ps1` | Runs the Pester suite, then the validator. |
 | `tests/` | Pester tests. Sandboxed — no game, no key, no network. |
@@ -761,6 +798,7 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser
 | `Skipping '<file>': no *.mod file inside` | Not a DMF mod archive (a texture pack, a readme bundle, or a nested zip). Ignored on purpose. |
 | Deploy says `Already in sync` when you expected work | Staging really does match the game folder. If you edited the game folder directly, that edit is what `-Mirror` or `-Force` is for. |
 | Game crashes on load after an update | `.\darktide.ps1 restore -Apply`, then bisect: comment out half of `mod_load_order.txt` with `--` and restart. See [After a Darktide patch](#after-a-darktide-patch). |
+| Game crashes, or a mod errors, after an update, and you want to know which | `.\darktide.ps1 errors` names the mod most likely behind it from the newest console log. See [Which mod crashed the game](#which-mod-crashed-the-game). |
 | Mods silently stop loading after a game update | Steam replaced the patched bundle. `.\darktide.ps1 loader -Apply` or `.\darktide.ps1 deploy -Apply -RunToggle`. |
 | `HTTP 403 ... premium users only` | Expected on a free Nexus account. Version *checking* works on free; downloading through the API does not. Download in the browser. |
 | `HTTP 429` / rate limited | Nexus allows 100 requests/hour, 2500/day. Wait it out, or use `-NoApi`. |
