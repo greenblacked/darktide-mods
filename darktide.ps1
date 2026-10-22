@@ -38,6 +38,7 @@
         .\darktide.ps1 disable    switch a mod off in the load order (-Only); lists
                                   what is switched off when -Only is left out
         .\darktide.ps1 enable     switch a disabled mod back on (-Only)
+        .\darktide.ps1 pin        list held mods; with -Only, hold them at their version
 
     Everything is a dry run until you add -Apply, except 'status', 'check',
     'links', 'patchcheck' and 'diff' which never write anything (patchcheck
@@ -112,6 +113,12 @@
     restore the settings backup whose name contains this text instead of taking a
     new backup; a substring matching more than one backup is refused.
 
+.PARAMETER Unpin
+    With 'pin': release the -Only mods instead of holding them.
+
+.PARAMETER Reason
+    With 'pin': why the mod is held, e.g. 'crashes on 1.4'. Shown when listing pins.
+
 .EXAMPLE
     .\darktide.ps1 sync
     Dry run of the full pipeline - shows what would be installed and deployed.
@@ -179,13 +186,18 @@
     .\darktide.ps1 disable -Only scoreboard -Apply
     Switch a mod off in staging without deleting it, then deploy to make it live.
     'enable -Only scoreboard -Apply' switches it back on.
+
+.EXAMPLE
+    .\darktide.ps1 pin -Only NumericUI -Reason 'crashes on 1.4' -Apply
+    Hold NumericUI at its installed version. update reports it as PINNED and leaves
+    it alone, -Force included, until: .\darktide.ps1 pin -Only NumericUI -Unpin -Apply
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
     [ValidateSet('init', 'status', 'check', 'links', 'update', 'deploy', 'sync', 'rollback', 'restore',
-                 'lock', 'loader', 'export', 'import', 'help', 'upgrade', 'patchcheck', 'diff', 'errors', 'settings', 'changes', 'enable', 'disable')]
+                 'lock', 'loader', 'export', 'import', 'help', 'upgrade', 'patchcheck', 'diff', 'errors', 'settings', 'changes', 'enable', 'disable', 'pin')]
     [string]   $Verb = 'help',
 
     [switch]   $Apply,
@@ -213,6 +225,8 @@ param(
     [ValidateRange(1, 1000)]
     [int]      $Last = 1,
     [switch]   $Open,
+    [switch]   $Unpin,
+    [string]   $Reason,
     [string]   $ConfigPath = (Join-Path $PSScriptRoot 'config.json')
 )
 
@@ -239,8 +253,9 @@ $Blamer   = Join-Path $PSScriptRoot 'Get-DarktideErrors.ps1'
 $SettingsBackup = Join-Path $PSScriptRoot 'Backup-DarktideSettings.ps1'
 $Changer  = Join-Path $PSScriptRoot 'Show-ModChanges.ps1'
 $Toggler  = Join-Path $PSScriptRoot 'Set-ModState.ps1'
+$Pinner   = Join-Path $PSScriptRoot 'Set-ModPin.ps1'
 
-foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Upgrader, $BuildState, $Differ, $Blamer, $SettingsBackup, $Changer, $Toggler)) {
+foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Upgrader, $BuildState, $Differ, $Blamer, $SettingsBackup, $Changer, $Toggler, $Pinner)) {
     if (-not (Test-Path -LiteralPath $s)) { throw "Missing script: $s" }
 }
 
@@ -307,6 +322,15 @@ if ($Verb -eq 'settings') {
     return
 }
 
+# 'pin' edits mods-map.json only. It reads config.json for MapPath and ModsRoot when
+# there is one, and works on the map alone when there is not.
+if ($Verb -eq 'pin') {
+    $listing = -not $Only
+    Write-Head "$(if ($listing) { 'Pinned mods' } elseif ($Unpin) { 'Unpinning mods' } else { 'Pinning mods' })$(if (-not $listing -and -not $Apply) { ' (dry run)' })"
+    & $Pinner -ConfigPath $ConfigPath -Only $Only -Reason $Reason -Unpin:$Unpin -Apply:$Apply -Confirm:$false
+    return
+}
+
 # ---- Config ------------------------------------------------------------------------
 
 if (-not (Test-Path -LiteralPath $ConfigPath)) {
@@ -362,6 +386,14 @@ switch ($Verb) {
             Write-Host "  version-tracked    : $($tracked.Count)"
             Write-Host "  with author info   : $($withInfo.Count)"
         } else { Write-Err "  missing: $modsRoot" }
+        $mapFile = Get-Cfg 'MapPath' (Join-Path $PSScriptRoot 'mods-map.json')
+        try {
+            $entries = @(if (Test-Path -LiteralPath $mapFile) { (Get-Content -LiteralPath $mapFile -Raw -Encoding UTF8 | ConvertFrom-Json).PSObject.Properties })
+            $pins = @($entries | Where-Object { $_.Value -is [System.Management.Automation.PSCustomObject] -and
+                                                $_.Value.PSObject.Properties.Name -contains 'pinned' -and $_.Value.pinned } |
+                      ForEach-Object { $_.Name })
+            Write-Host "  pinned (held)      : $($pins.Count)$(if ($pins) { ' - ' + ($pins -join ', ') })"
+        } catch { Write-Warn "  pinned (held)      : unknown - $mapFile could not be read" }
 
         Write-Head 'Game folder'
         if ($gamePath -and (Test-Path -LiteralPath $gamePath)) {

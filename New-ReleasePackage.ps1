@@ -85,7 +85,8 @@ $Include = @(
     'Get-DarktideErrors.ps1',
     'Backup-DarktideSettings.ps1',
     'Show-ModChanges.ps1',
-    'Set-ModState.ps1'
+    'Set-ModState.ps1',
+    'Set-ModPin.ps1'
 )
 
 if ($ListOnly) {
