@@ -13,7 +13,7 @@ Framework loadout from PowerShell, with backups and a one-command rollback at ev
 > author's page. You download the mods yourself, from the authors, on Nexus. See
 > [Why a manifest](#why-a-manifest-and-not-the-mods).
 
-**First week:** [docs/first-week.md](docs/first-week.md) — init, loader, sync, undo, offline.
+**First week:** [docs/first-week.md](docs/first-week.md) — init, loader, upgrade, undo, offline.
 
 ---
 
@@ -187,13 +187,67 @@ Renamed a file? The version inside the archive's `info.json` is used instead. If
 available the archive is reported as `VERSION-UNKNOWN` and skipped rather than guessed at —
 install it with `-Force -Only <folder>` if you're sure.
 
+Only `.zip` archives are installed. A mod that Nexus serves as `.7z` or `.rar` is skipped by
+`update` without a message, so extract it and re-zip it, or install it by hand.
+
+Then run `.\darktide.ps1 intake` to see what you have before applying anything — see
+[Before update -Apply: intake](#before-update--apply-intake).
+
 ### 2. Close the game
 
 `-Apply` refuses to write while `Darktide.exe` is open, since replacing a loaded mod file
 gives you a half-updated game. Dry runs are fine with the game running — plan first, close,
-then apply.
+then apply. `upgrade` follows the same rule: it shows the plan with the game open, warns you,
+and refuses to apply until the game is closed.
 
-### 3. Dry run first
+### 3. Upgrade
+
+This is the everyday command:
+
+```powershell
+.\darktide.ps1 upgrade
+```
+
+It runs the update and deploy dry runs, shows the result as one plan, and asks once:
+
+```
+Plan
+  Staging (D:\Darktide\mods)
+    update  markers_aio  2.14.3 -> 2.14.4
+    new     scoreboard  1.3.0
+  Game folder (...\Warhammer 40,000 DARKTIDE\mods)
+    matches staging now; will be synced once the staging changes above are made
+  Lockfile
+    regenerated from staging once the deploy succeeds
+
+Apply this plan? [y/N]:
+```
+
+Answer `y` and it installs exactly the mods the plan named into staging, deploys to the game
+folder and regenerates the lockfile — the same three steps as `sync -Apply` below, with the
+same backups and the same stop-on-failure. Anything other than `y` or `yes` is a no, and a no
+writes nothing. If there is nothing to install and the game folder already matches staging,
+it says `Nothing to do` and exits 0 without asking.
+
+When it finishes it prints what changed, the staging backup set and the `gamemods-*.zip` this
+run made, and the exact commands that undo it:
+
+```
+Undo
+  .\darktide.ps1 restore -BackupSet 'gamemods-20261021-201215.zip' -Apply
+  .\darktide.ps1 rollback -BackupSet '20261021-201215' -Apply
+  .\darktide.ps1 lock
+```
+
+`upgrade` has no `-Apply`: the question is the gate. `-Yes` answers it for you (the plan is
+still printed, and the game still has to be closed). In a session that cannot answer —
+`powershell -NonInteractive`, or a scheduled task running with no one logged on — it refuses
+with a message rather than waiting forever, so pass `-Yes` there. `upgrade` has no `-Only`, `-Force` or `-Mirror`; for those, use
+`sync`.
+
+### 4. Or step by step: `sync`
+
+`sync` does the same work as two commands you run yourself. Dry run first:
 
 ```powershell
 .\darktide.ps1 sync
@@ -201,8 +255,7 @@ then apply.
 
 Nothing is written. You get the full plan: which archives were matched to which mod folders,
 which are newer than what's installed, and what the deploy would copy. Read it before applying.
-
-### 4. Apply
+Then apply:
 
 ```powershell
 .\darktide.ps1 sync -Apply
@@ -215,13 +268,16 @@ In order, this:
 3. backs up the live game `mods\` folder to a zip;
 4. syncs staging into the game folder;
 5. re-checks that every load-order entry resolves to a real folder;
-6. refreshes `darktide-modpack.lock.json`.
+6. refreshes `darktide-modpack.lock.json`, hashing every mod folder so the lockfile can
+   still show drift, and keeping the loadout's name.
 
 If the update step fails, deploy does not run. If deploy finishes with problems, the
-lockfile is not refreshed. Either way the exit code is non-zero.
+lockfile is not refreshed. Either way the exit code is non-zero. Before the lockfile is
+replaced, one line says what changed in it: mods added, removed, and changed in version
+or content.
 
 Everything is a dry run until `-Apply`, except `lock`, which always rewrites the
-manifest. `status` and `check` never write. Running it again when nothing has changed doesnothing at all — see [Re-running is safe](#re-running-is-safe).
+manifest, and `upgrade`, which asks first. `status` and `check` never write. Running it again when nothing has changed does nothing at all — see [Re-running is safe](#re-running-is-safe).
 
 ### 5. Start the game and confirm
 
@@ -238,19 +294,29 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 | Verb | What it does |
 |---|---|
 | `init` | Find your Darktide install automatically and write `config.json`. |
-| `loader` | Install or update the Darktide Mod Loader and patch the bundle. |
+| `loader` | Install or update the Darktide Mod Loader and patch the bundle. `-PatchOnly` re-patches after a game update; `-RestoreBackup` puts a previous loader back. |
 | `status` | Staged vs deployed, drift, loader state, backup sets. Read-only. |
 | `check` | Ask Nexus what's outdated. Needs an API key. Read-only. |
-| `links` | Where to look when you have no key: the Nexus page for every mod, plus the latest GitHub release tag for any mod mapped to a repository. Read-only. |
+| `links` | Where to look when you have no key: the Nexus page for every mod, plus the latest GitHub release tag for any mod mapped to a repository. `-Open` opens those pages in the browser. Read-only. |
 | `update` | Install newer archives from your download folder into staging. |
 | `deploy` | Push staging into the game folder. |
 | `sync` | `update` then `deploy`, then refresh the lockfile. Stops if a step fails. |
 | `rollback` | Undo the last staging install. Dry run until `-Apply`. |
 | `restore` | Undo the last deploy to the game folder. Dry run until `-Apply`. |
-| `lock` | Regenerate `darktide-modpack.lock.json` from what's installed. |
+| `lock` | Regenerate `darktide-modpack.lock.json` from what's installed. Keeps the existing loadout name, and prints a one-line change summary before it overwrites. |
 | `lock -SyncIdsFromMap` | Copy non-null Nexus ids (and urls) from `mods-map.json` into the existing lockfile. No `ModsRoot` needed; versions and hashes stay put. |
 | `export` | Zip your whole loadout into one file, as a personal backup. |
 | `import` | Restore a loadout zip into staging and deploy it, in one step. |
+| `upgrade` | The everyday command: the `update` and `deploy` dry runs as one plan, one `Apply this plan? [y/N]`, then update, deploy and the lockfile, ending with the backup names and the commands that undo them. A no writes nothing; `-Yes` skips the question. |
+| `patchcheck` | After a game patch: whether Steam replaced the patched bundle database, which loader files are missing, and what to run next. Exits `1` when something needs doing. Read-only; `-Remember` stores a baseline beside staging. |
+| `diff` | How two loadouts differ: mods added or removed, version changes, mods changed in place, load-order moves. Each side is a lockfile, an export zip, `git:<rev>` or `current`; plain `diff` compares staging with the committed lockfile. Read-only. See [Comparing two loadouts](#comparing-two-loadouts). |
+| `errors` | Read the game's newest console log and name the mod most likely behind its errors. Works without `config.json` given `-LogDir`. Read-only. |
+| `settings` | Back up your mod settings file (`user_settings.config`), or restore one with `-BackupSet`. Dry run until `-Apply`. Needs no config. |
+| `changes` | After `update -Apply`, before `deploy`: per mod, the old and new version and which files were added, removed or changed. Read-only. |
+| `disable` | Switch a mod off in the staging load order without deleting it (`-Only`). With no `-Only`, lists what is switched off. Dry run until `-Apply`. |
+| `enable` | Switch a disabled mod back on (`-Only`). Dry run until `-Apply`. |
+| `pin` | Hold mods at their current version so `update` leaves them alone, `-Force` included. Lists pins on its own; `-Only` pins, `-Unpin` releases. Dry run until `-Apply`. See [Holding a mod back](#holding-a-mod-back). |
+| `intake` | Classify every archive in your download folder against staging and the lockfile, and list what is still to download. Run it before `update -Apply`. Read-only; exits `1` on an `ID-MISMATCH`. |
 | `profile` | Save, list, show, switch or delete named load orders such as `full` or `minimal`. `switch` deploys; it and `delete` are dry runs until `-Apply`. See [Profiles](#profiles). |
 
 ### Useful switches
@@ -261,11 +327,31 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 .\darktide.ps1 deploy -Apply -InstallLoader               # fresh install / after a game patch
 # -InstallLoader calls Install-DarktideLoader.ps1 (copy + dtkit-patch). Do not also pass
 # -RunToggle on that run: the toggle bat flips state and would undo the patch.
-.\darktide.ps1 deploy -Apply -RunToggle                   # re-patch only, loader already present
+.\darktide.ps1 loader -PatchOnly -Apply                   # re-patch only, loader already present
+# Prefer that to -RunToggle: it runs dtkit-patch --patch and does nothing if already patched,
+# where the toggle flips state, so running it a second time turns every mod off.
+.\darktide.ps1 loader -RestoreBackup                      # list loader backups; -Apply restores the newest
+.\darktide.ps1 loader -RestoreBackup -BackupSet 20261021 -Apply   # ...or the one named
 .\darktide.ps1 update -Apply -Force -Only NumericUI         # reinstall or downgrade one mod
 .\darktide.ps1 lock -SyncIdsFromMap                        # push mods-map ids into the lockfile
 .\darktide.ps1 links -OutFile updates.md                   # the check-by-hand list, as markdown
 .\darktide.ps1 links -CheckGitHub                          # ...and ask GitHub for release tags
+.\darktide.ps1 upgrade -Yes                                # apply the upgrade plan without asking
+.\darktide.ps1 patchcheck -Remember                         # record this build for the next check
+.\darktide.ps1 patchcheck -OutFile patchcheck.json          # keep the full report (.json or .md)
+.\darktide.ps1 diff -Left git:HEAD~1 -Right git:HEAD       # what the last commit changed in the lockfile
+.\darktide.ps1 diff -OutFile diff.md                       # staging vs lockfile, also written as markdown
+.\darktide.ps1 errors -Last 3 -OutFile errors.md           # culprits from the three newest console logs
+.\darktide.ps1 errors -LogDir 'D:\from-a-friend\logs'      # someone else's logs, no config needed
+.\darktide.ps1 links -Open -Only markers_aio,scoreboard     # open those Nexus pages in the browser
+.\darktide.ps1 links -CheckGitHub -Open                     # open only the pages whose GitHub release differs
+.\darktide.ps1 settings -Apply                             # back up your mod settings
+.\darktide.ps1 settings -BackupSet 20261022 -Apply         # restore a settings backup
+.\darktide.ps1 disable -Only scoreboard,markers_aio -Apply  # switch mods off in staging
+.\darktide.ps1 enable -Only scoreboard -Apply              # ...and back on
+.\darktide.ps1 pin -Only NumericUI -Reason 'crashes on 1.4' -Apply   # hold one mod back
+.\darktide.ps1 pin -Only NumericUI -Unpin -Apply              # ...and let it update again
+.\darktide.ps1 intake -OutFile intake.json -Force          # what is in DownloadDir, as JSON
 .\darktide.ps1 profile -Action switch -Name minimal -Apply  # swap the load order and deploy
 ```
 
@@ -297,7 +383,12 @@ Your `mod_load_order.txt` is never overwritten — the loader ships its own, and
 yours would wipe your mod list.
 
 **Updating follows the loader's own instructions:** unpatch the bundle database, copy the new
-files, re-patch. The previous loader is zipped to `loader_backups\` first.
+files, re-patch. The previous loader is copied to a `loader_backups\loader-<timestamp>\`
+folder first (a plain folder, not a zip), beside your staging folder. Only the loader's own
+files go in it — `binaries\mod_loader`, `bundle\*.patch_999`, `tools\dtkit-patch.exe`,
+`toggle_darktide_mods.bat` — plus a copy of `.darktide-loader.json`, so a restore knows which
+version it is putting back. The game's own files in `binaries\` and `bundle\` are never backed
+up or restored; Steam owns those.
 
 > **Never run `toggle_darktide_mods.bat` twice.** It *toggles*: once patches, twice unpatches
 > and every mod silently stops loading. This tooling always calls `dtkit-patch` with an
@@ -305,6 +396,43 @@ files, re-patch. The previous loader is zipped to `loader_backups\` first.
 
 The installed version is recorded in `<game>\.darktide-loader.json` and shown by `status`.
 Re-running with the same version does nothing and doesn't touch the bundle at all.
+
+After every successful `--patch` the same file records a fingerprint of the patched bundle
+database, under `bundleDb`: its SHA-256, size and last-write time. A Steam update replaces
+`bundle\bundle_database.data`, so a different hash later means the patch is gone.
+
+### Re-patching after a game update
+
+```powershell
+.\darktide.ps1 loader -PatchOnly          # compares the bundle database with the fingerprint
+.\darktide.ps1 loader -PatchOnly -Apply   # re-patches if it changed
+```
+
+`-PatchOnly` uses the `dtkit-patch.exe` already in the game's `tools\` folder: no download, no
+file copy, never the toggle. If the database still matches the recorded fingerprint it says
+`Already patched` and does nothing. Otherwise, under `-Apply`, it copies the database to
+`loader_backups\bundledb-<timestamp>.data`, runs `dtkit-patch --patch`, and records the new
+fingerprint. If the patcher or the mod entry bundle has gone missing it says
+`loader files missing: run .\darktide.ps1 loader -Apply -Force`, exits `1` and writes nothing.
+
+An install made before the fingerprint existed has none on record, so the first `-PatchOnly`
+patches to get one. Whether `dtkit-patch --patch` is harmless on a database that is already
+patched is not something this repository can check; if it refuses, nothing is recorded and the
+database copy is in `loader_backups\`.
+
+### Putting a previous loader back
+
+```powershell
+.\darktide.ps1 loader -RestoreBackup                              # lists the backups, newest first
+.\darktide.ps1 loader -RestoreBackup -Apply                       # restores the newest
+.\darktide.ps1 loader -RestoreBackup -BackupSet 20261021 -Apply   # restores the one whose name contains this
+```
+
+Under `-Apply` it backs up the loader you have now (so the restore can itself be undone),
+unpatches, copies the backed-up loader files in, patches again, and rewrites
+`.darktide-loader.json` with the backed-up version. A `-BackupSet` that matches more than one
+backup is refused. Backups made before the state file was stored with them restore as version
+`restored-unknown`, which the next `loader -Apply` treats as out of date.
 
 ---
 
@@ -413,11 +541,16 @@ Every verb is idempotent: running it twice does the same thing as running it onc
   `-Force` overrides that when you want a redeploy anyway.
 - `update` records the installed version in each mod's `.nexus-mod.json`, so an archive you
   have already installed comes back as `SAME` and is skipped. `-Force` reinstalls.
-- `mod_load_order.txt` is only ever appended to, and never with a name already in it.
+- `mod_load_order.txt` is only ever appended to, and never with a name already in it. A
+  `--name` line counts as already in it, so updating a mod you switched off with `disable`
+  leaves it switched off.
 - `loader` compares the version you have against `<game>\.darktide-loader.json` and stops if
   they match — it doesn't even touch the bundle database, so it can't toggle your mods off.
+- `loader -PatchOnly` compares the bundle database with the fingerprint recorded after the last
+  patch and stops if they match — no backup, no patcher call.
 - Staging, deploy, and loader backups are each pruned to the newest `-KeepBackups`
-  archives (default 10), so repeated runs cannot fill the disk.
+  (default 10), so repeated runs cannot fill the disk. Loader folders and bundle database
+  copies are counted separately.
 - `profile -Action switch` to the profile staging already uses rewrites nothing and takes
   no load-order backup. Its deploy still runs, and has nothing to copy unless the game
   folder had drifted from staging, in which case it backs up and resyncs like any deploy.
@@ -473,6 +606,31 @@ that folder's `.nexus-mod.json` (created the first time this tool installed the 
 | `OLDER` | The zip is older than staging. Skipped, so a leftover download cannot downgrade you. |
 | `NO-ARCHIVE` | That folder has no matching zip in `DownloadDir`. Not an error. |
 | `VERSION-UNKNOWN` | Renamed zip and no `info.json`. Skipped. |
+| `PINNED` | Held with `pin`. Never installed, even with `-Force`; the Action column has the command that releases it. |
+
+#### Before update -Apply: intake
+
+Run `intake` after downloading and before `update -Apply`. It reads every archive in
+`DownloadDir` without extracting it, compares it with staging and the lockfile, and lists
+the lockfile mods that are still neither staged nor downloaded, with their Nexus pages.
+It writes nothing, needs no key and no network.
+
+```powershell
+.\darktide.ps1 intake
+.\darktide.ps1 intake -OutFile intake.md      # keep it as markdown (.json also works)
+```
+
+| Status | Meaning |
+|---|---|
+| `UPGRADE` | Newer than staging. `update -Apply` installs it. |
+| `SAME` / `OLDER` | Already staged, or older than staging. `update` skips it. |
+| `NEW-IN-LOCK` | In the lockfile but not staged yet. `update -Apply` installs it. |
+| `NOT-IN-LOCK` | A mod that is neither staged nor in the lockfile. `update -Apply` would add it as a new mod. Delete the zip if you did not mean that. |
+| `ID-MISMATCH` | The Nexus id in the filename is not the id recorded for that folder in staging or the lockfile: a different mod that uses the same folder name. `update` matches on the folder alone and would install it over yours. `intake` exits `1` when it finds one. |
+| `NOT-DMF` | No `.mod` file inside. `update` ignores it. |
+| `UNSUPPORTED-FORMAT` | `.7z` or `.rar`. `update` ignores these without saying so. |
+| `VERSION-UNKNOWN` | Renamed zip and no `info.json`. `update` skips it without `-Force`. |
+| `SUPERSEDED` | Another zip for the same mod wins, because it is newer or the same version downloaded twice. Safe to delete, unless the winning zip carries a different Nexus id (an `ID-MISMATCH`); then keep it. |
 
 A first run often shows `version-tracked: 0` in `status`. Nothing has been installed *by
 this tool* yet, so there is no recorded version to compare. The first `update -Apply`
@@ -496,6 +654,65 @@ One folder only:
 
 `-Force` is the deliberate reinstall or downgrade. Without it, older zips stay skipped.
 
+#### See what the update changed before you deploy
+
+`update -Apply` zips every mod it replaces into a backup set under `BackupRoot`, named
+after the time of the run. `changes` compares that set with staging, so you can judge an
+update before it reaches the game:
+
+```powershell
+.\darktide.ps1 update -Apply
+.\darktide.ps1 changes                         # newest backup set vs staging
+.\darktide.ps1 changes -BackupSet 1020-18      # any unique part of an older set's name
+.\darktide.ps1 changes -OutFile changes.md     # every file listed; .json works too
+```
+
+You get one row per mod with its old and new version and how many files were added
+(`+`), removed (`-`) and changed (`~`), then the file names under each mod. Files are
+compared by SHA-256; `.nexus-mod.json` is ignored because every install rewrites it. A
+mod installed by the run with no earlier copy is `NEW`; a backed-up mod whose folder is
+gone is `REMOVED`. The console shows at most 50 file names per mod; `-OutFile` has them
+all. It prints names, never file content.
+
+It writes nothing except `-OutFile` (which needs `-Force` to overwrite) and never looks
+at the game folder. It ends with the matching undo,
+`.\darktide.ps1 rollback -BackupSet <set> -Apply`, followed by `deploy -Apply`. Rollback
+restores every mod in the set and does not delete mods marked `NEW`. Rollback also
+skips a mod whose name it treats as unsafe (one containing `[` or `]`, for instance);
+`changes` names any such mod so the undo does not promise more than it does.
+
+`NEW` is worked out from the install time update writes into `.nexus-mod.json`. A mod
+without one falls back to its folder's last-write time, so a mod copied into staging by
+hand after the update shows as `NEW` too. A run that only added new mods replaces
+nothing and so leaves no backup set; its mods appear as `NEW` against the set before it.
+
+### Holding a mod back
+
+When an update breaks a mod and the author has not fixed it yet, roll it back and pin
+it, so the next `update` leaves it where it is:
+
+```powershell
+.\darktide.ps1 rollback -Apply                                       # put the old version back
+.\darktide.ps1 pin -Only NumericUI -Reason 'crashes on 1.4'          # dry run: shows the change
+.\darktide.ps1 pin -Only NumericUI -Reason 'crashes on 1.4' -Apply   # write it
+.\darktide.ps1 pin                                                   # list every pin
+.\darktide.ps1 pin -Only NumericUI -Unpin -Apply                     # release it
+```
+
+A pin is `"pinned": true` on the mod's entry in `mods-map.json`, plus `pinnedVersion`
+(what staging held when you pinned it, or `null` if it had no version), `pinnedReason`
+and `pinnedAt`. Unpinning sets `pinned` back to `false` and removes the other three.
+
+`update`, `sync` and `check` report a pinned mod as `PINNED`, with the unpin command in
+the Action column, and install nothing for it: not a newer zip, not a first install of
+a pinned folder that is not staged yet, and not with `-Force` either. `-Force` overrides
+version checks, not a decision to hold a mod; unpin it first.
+
+`pin` edits `mods-map.json` and nothing else. Before writing it copies the current file to
+`mods-map.json.bak`, and it keeps every other entry and key in place, so the diff is the
+pin and nothing more. A folder name that is in neither the map nor staging is refused,
+so a typo cannot pin a mod you do not have. `status` shows how many mods are pinned.
+
 ### 6. When you want to look on Nexus yourself
 
 Local check cannot see a version you never downloaded. `links` turns the lockfile into
@@ -510,6 +727,27 @@ It touches nothing and needs no key. Each row is the version this tool last inst
 and the author's page. Open the page, download if Nexus shows newer, leave the filename
 alone, run `update` again. A mod with no `modId` in the lockfile says so rather than
 getting a guessed link.
+
+Opening the pages is the one step here that can be automated without a key:
+
+```powershell
+.\darktide.ps1 links -Open -Only markers_aio,scoreboard    # open those two pages
+.\darktide.ps1 links -CheckGitHub -Open                    # open only what GitHub says has moved
+```
+
+`-Open` prints the list as usual, then opens each selected mod's Nexus page in your
+default browser. The address is always built from the lockfile's numeric `modId` and
+game domain, never copied from its `url` field: the browser is started through the
+shell, which would run a program or open a local file just as readily as a web page.
+Two folders that share a mod id open one tab. A mod with no `modId` is listed as
+`no page`. With `-CheckGitHub`, only the mods whose GitHub check says `differs` are
+opened; a mod with no repository mapped, or whose check failed, stays closed.
+
+More than 10 pages and it opens none, says how many there were, and exits 1, so a
+forgotten `-Only` does not bury the browser under 45 tabs. Narrow the selection with
+`-Only` / `-Skip`, or raise the cap on the script itself
+(`.\Find-ModUpdates.ps1 -Open -OpenLimit 50`, up to 100). It still downloads nothing;
+the click on Nexus stays yours.
 
 #### The one upstream that answers with no key at all
 
@@ -566,8 +804,9 @@ environment:
 ```
 
 `mods-map.json` maps folder names to Nexus ids. Mods that ship `info.json` are mapped
-on install; the rest need the number from the mod URL pasted in. Set `"pinned": true`
-on anything `update` should leave alone.
+on install; the rest need the number from the mod URL pasted in. To make `update` leave
+a mod alone, pin it with `.\darktide.ps1 pin -Only <folder> -Apply` rather than editing
+the flag by hand — see [Holding a mod back](#holding-a-mod-back).
 
 After editing the map, push those ids into the lockfile without regenerating it:
 
@@ -594,13 +833,84 @@ folder is unmapped.
 
 ---
 
+## Switching a mod off without deleting it
+
+The mod loader skips any line in `mod_load_order.txt` that starts with `--`. `disable` and
+`enable` make that edit for you, in the **staging** copy of the file, and leave the mod
+folder where it is, so turning it back on needs no download.
+
+```powershell
+.\darktide.ps1 disable                                # what is switched off right now
+.\darktide.ps1 disable -Only scoreboard               # dry run: shows the line it would change
+.\darktide.ps1 disable -Only scoreboard -Apply        # scoreboard -> --scoreboard
+.\darktide.ps1 deploy -Apply                          # make it live in the game
+
+.\darktide.ps1 enable -Only scoreboard -Apply         # --scoreboard -> scoreboard
+.\darktide.ps1 deploy -Apply
+```
+
+- Only the named lines change. Comments, order, blank lines, line endings and the file's
+  encoding are kept exactly as they were.
+- `-Only` takes folder names as they appear in staging, several at once with commas. A name
+  that is not a staging folder is an error, and nothing is written. `base` and `dmf` are
+  refused: every other mod depends on them.
+- A staged mod that is missing from the file entirely is appended - as `name` by `enable`,
+  and as `--name` by `disable`, so a later `update` does not add it back switched on.
+- Neither verb deploys. Toggle as many mods as you like, then deploy once.
+- Before writing, the current file is copied to `loadorder_backups\mod_load_order-<time>.txt`
+  next to your `BackupRoot` folder, pruned to the newest 10. It is kept out of `BackupRoot`
+  itself because `rollback` treats every folder in there as a staging backup set.
+- `update` and `sync` leave a switched-off mod switched off, including when they install a
+  newer version of it.
+
+---
+
 ## After a Darktide patch
+
+### Check first
+
+```powershell
+.\darktide.ps1 patchcheck
+```
+
+It reads, and never writes to the game folder:
+
+- Steam's app manifest, `steamapps\appmanifest_1361210.acf`, found two levels above
+  `GamePath` with no registry lookup. If Steam is still downloading (`StateFlags` is
+  not `4`, or the target build differs from the installed one) it says so and
+  suggests nothing to apply until Steam has finished. A library laid out
+  differently can be pointed at with `Get-DarktideBuildState.ps1 -ManifestPath`.
+- The size, timestamp and SHA-256 of `bundle\bundle_database.data`, compared with
+  the fingerprint the loader records in `.darktide-loader.json` right after it
+  patches. A different hash means Steam replaced the database (an update or a file
+  verify), and it tells you to run `.\darktide.ps1 loader -PatchOnly -Apply`. An
+  older state file with no fingerprint falls back to comparing the database's
+  write time with the loader's install time, and the report says that is a guess.
+- Whether `binaries\mod_loader`, `bundle\*.patch_999`, `tools\dtkit-patch.exe` and
+  `toggle_darktide_mods.bat` are all still there. If not: `loader -Apply -Force`.
+- Which staged mods were installed before the game last updated, going by each
+  mod's `.nexus-mod.json`. That is a hint about where to look first if something
+  misbehaves. It says nothing about whether a mod still works or has an update.
+  Pinned mods show as `PINNED`; mods with no install record as `UNKNOWN`. It ends
+  with a `links -Only ...` line for the ones that predate the update.
+
+`-Remember` stores the build id and database fingerprint in
+`<parent of ModsRoot>\.darktide-gamestate.json`, so the next check can say
+`build changed since last remembered check: old -> new`. Nothing else writes that
+file. Exit code `0` means in sync or nothing certain to act on (including "Steam is
+still updating"), `1` means something needs doing. The manifest keys are what Steam
+writes today; this repository cannot check them against every Steam client, so an
+unexpected manifest is reported as a warning and the other checks still run.
+
+### Then fix it
 
 The order matters:
 
 ```powershell
-# 1. Re-apply the mod loader's bundle patch (Steam replaced it)
-.\darktide.ps1 loader -Apply -Force
+# 1. Re-apply the mod loader's bundle patch (Steam replaced it).
+#    Not the toggle bat: it flips state, so a second run turns every mod off.
+.\darktide.ps1 loader -PatchOnly -Apply
+#    If the loader itself has a new release, install that instead: .\darktide.ps1 loader -Apply
 
 # 2. Update the framework first - most mods depend on it
 .\darktide.ps1 update -Apply -Only dmf
@@ -608,16 +918,98 @@ The order matters:
 # 3. Then the rest
 .\darktide.ps1 sync -Apply
 
-# 4. If the game crashes on load, bisect: comment out half of
-#    mod_load_order.txt with '--' and restart.
+# 4. If the game crashes on load, ask the log which mod it most likely was:
+.\darktide.ps1 errors
+#    If that names nothing useful, bisect: switch off half the mods, deploy,
+#    restart, and keep halving whichever half still crashes.
+.\darktide.ps1 disable -Only mod_a,mod_b,mod_c -Apply
+.\darktide.ps1 deploy -Apply
+#    When you have found it, switch the innocent ones back on:
+.\darktide.ps1 enable -Only mod_a,mod_b -Apply
 
 # 5. If one mod is the culprit and has no update yet:
 .\darktide.ps1 rollback -Apply -BackupSet '<set>'
-#    then set "pinned": true on it in mods-map.json
+#    then hold it there until the author catches up:
+.\darktide.ps1 pin -Only <folder> -Reason 'crashes after the patch' -Apply
 ```
 
 Your mod **settings survive all of this** — DMF stores them in `%APPDATA%\Fatshark\Darktide\`,
-not in the mod folders.
+not in the mod folders. Nothing above backs them up, though; see the next section.
+
+---
+
+## Back up your mod settings
+
+The options you set in the mod menu (keybinds, toggles, colours) are saved in the game's settings file,
+`%APPDATA%\Fatshark\Darktide\user_settings.config`. It lives outside staging and the game
+folder, so `deploy`, `update`, `export` and the loader never touch it, and none of their
+backups include it. If a mod update resets its options, or you switch mod profiles and want
+your old options back, that file is the thing to restore.
+
+Take a copy before anything that might go wrong:
+
+- before a big update (`sync -Apply` after a Darktide patch, or updating DMF);
+- before switching mod profiles;
+- once you have the mod menu set up the way you like it.
+
+```powershell
+.\darktide.ps1 settings                      # show the file and your backups, newest first
+.\darktide.ps1 settings -Apply               # take a backup
+.\darktide.ps1 settings -BackupSet 20261022  # what restoring that backup would change
+.\darktide.ps1 settings -BackupSet 20261022 -Apply
+```
+
+- Backups go to `settings_backups\user_settings-<timestamp>.config` beside your staging
+  folder (the parent of `ModsRoot`, next to `mod_backups\`). Set `SettingsBackupDir` in
+  `config.json` to put them elsewhere; with no `config.json` they go to
+  `%LOCALAPPDATA%\darktide-mods\settings_backups\`. It refuses a folder inside this
+  repository, staging or the game folder.
+- A backup is skipped, and says so, when the file is byte-identical to the newest one.
+  Two backups in the same second are numbered (`-1`, `-2`) rather than overwriting each
+  other. The newest 10 are kept (`-KeepBackups` on the script).
+- A restore refuses to run while the game is open: Darktide rewrites this file when it
+  exits, which would undo the restore. It copies the current file to a
+  `...-prerestore.config` backup first, so a restore can itself be undone, unless the
+  current file is identical to the newest backup and so already saved. A `-BackupSet`
+  that matches more than one backup is refused; pass more of the name.
+- The file is copied byte for byte and compared by hash. It is never parsed or merged.
+
+The location above is where the file is documented to live; this repository cannot verify
+it. If yours is somewhere else, set `SettingsPath` in `config.json`, or run the script
+directly: `.\Backup-DarktideSettings.ps1 -SettingsPath 'D:\path\user_settings.config' -Apply`.
+
+The file is personal. `.gitignore` excludes `user_settings*.config` and `settings_backups/`,
+and the release package never includes either.
+
+### Which mod crashed the game
+
+```powershell
+.\darktide.ps1 errors                       # the newest console log
+.\darktide.ps1 errors -Last 3               # the three newest, oldest first
+.\darktide.ps1 errors -OutFile errors.md    # also as markdown (or .json) for a bug report
+```
+
+It reads the end of the game's console log (the last 20,000 lines of each file), picks
+out the error and stack-traceback lines, and ranks the mods they name: by path
+(`mods/<folder>/`, `scripts/mods/<folder>/`) or by a DMF tag such as `[Numeric UI]`.
+Names are matched against your staging folder and the lockfile, so each row carries the
+version and Nexus page where the lockfile has them. DMF itself is only blamed when an
+error names no other mod, because it sits in the stack of every hook.
+
+Treat the top of the list as where to look first, not a verdict: a mod that hooks
+another mod's function can make its error show up in the other mod's stack. If the log
+has no mod lines at all, the loader probably did not run, and the report says to check
+the bundle patch (`.\darktide.ps1 patchcheck`, or re-patch with `.\darktide.ps1 loader -Apply`).
+
+Logs contain your Windows profile path and user name. Both are replaced with
+`%USERPROFILE%` and `<user>` in everything `errors` prints or writes, so the report is
+safe to paste. It writes nothing except the `-OutFile` you ask for, refuses to put that
+inside the game folder `config.json` names, and uses no network.
+
+The log location, `%APPDATA%\Fatshark\Darktide\console_logs`, and the log format are
+not verified by anything in this repository. If your logs are elsewhere, pass `-LogDir`
+or add `"ConsoleLogDir"` to `config.json`. The patterns it matches live in one commented
+table at the top of `Get-DarktideErrors.ps1`, so a format change is a one-line fix.
 
 ---
 
@@ -634,8 +1026,10 @@ This tooling deletes and replaces directories, so it is deliberately paranoid:
 - **Staged installs.** A mod is extracted to `.staging-<name>\` and only swapped in once the
   new copy is on disk. A corrupt archive can never leave you with a deleted mod.
 - **Backs up before every write** — staging installs to `mod_backups\<timestamp>\`, deploys to
-  `deploy_backups\gamemods-<timestamp>.zip`, loader updates to `loader_backups\`. Retention is
-  capped (default 10) so repeated runs cannot fill the disk.
+  `deploy_backups\gamemods-<timestamp>.zip`, loader updates and restores to
+  `loader_backups\loader-<timestamp>\`, re-patches to `loader_backups\bundledb-<timestamp>.data`,
+  settings restores to `settings_backups\`. Retention is capped (default 10) so repeated
+  runs cannot fill the disk.
 - **Archive contents decide the target folder**, taken from the `*.mod` file inside. If that
   doesn't match the mod being updated, the install is refused rather than guessed at.
 - **Zip-slip guarded** — `../`, absolute paths, and backslash traversal are rejected, and every
@@ -666,10 +1060,61 @@ the loadout, and you fetch each mod from its author.
 ```
 
 `contentSha256` hashes the installed folder's contents, so you can tell whether an install has
-drifted from what was locked.
+drifted from what was locked. `sync -Apply` and `lock` both hash; only `New-ModpackLock.ps1
+-NoHash` writes `null` there, and it warns when that replaces hashes the lockfile already had.
 
 The CI packaging step uses an explicit allow-list and hard-fails if anything mod-shaped ends up
 in the artifact.
+
+---
+
+## Comparing two loadouts
+
+`diff` compares two lockfiles and tells you what changed between them. It writes nothing
+except an `-OutFile` you ask for.
+
+```powershell
+.\darktide.ps1 diff                                         # staging now vs the committed lockfile
+.\darktide.ps1 diff -Left 'E:\darktide-loadout-20260829.zip' # an old export vs staging now
+.\darktide.ps1 diff -Left git:HEAD~5 -Right git:HEAD          # what five commits changed
+.\darktide.ps1 diff -Left a.lock.json -Right b.lock.json -OutFile diff.json
+```
+
+Each side can be:
+
+| Form | Read from |
+|---|---|
+| a path to a `.json` file | that lockfile |
+| a path to a `.zip` file | the `darktide-modpack.lock.json` at the root of an `export` archive, read straight out of the zip. Nothing is extracted. |
+| `git:<rev>` | the lockfile as committed at that revision (`git cat-file`). Nothing is checked out. Needs `git` on `PATH`. |
+| `current` | your staging folder as it is now. A lockfile is generated into a temporary file and deleted afterwards; the repository's lockfile is not touched. |
+
+`-Left` defaults to the repository lockfile and `-Right` to `current`. Only `current` needs
+`config.json`, so comparing two files, zips or revisions works before `init`.
+
+What it reports:
+
+- **added / removed** — mods present on one side only.
+- **version** — both versions known and different. Compared number by number, so `1.0` and
+  `v1.0.0` are the same version.
+- **changed in place** — the content hash differs but the version is the same or unknown. On a
+  setup where most mods record no version, this is how an update shows up.
+- **mod id / url / name** — the recorded Nexus id, page or display name changed.
+- **load order** — entries added, removed, or moved. A move is judged by relative order, so
+  inserting one mod does not list every mod after it as moved.
+
+A missing value is unknown, not a change. Most mods here have no recorded version, so a version
+that appears is listed as *now known* and one that disappears as *now unknown*. Neither counts
+as a difference.
+
+The exit code is `0` when the two are identical and `1` when they differ, so a script can branch
+on it. A side that cannot be read stops with an error, which is also non-zero, so check for the
+error (or for the `-OutFile` you asked for) if you need to tell the two apart. `-OutFile` takes a
+`.json` name for the full result, with every list present even when empty, or a `.md` name for a
+table. It will not overwrite a file without `-Force`, and never one of its own inputs.
+
+Both sides are treated as untrusted input: a lockfile over 512 KB, invalid JSON, a
+`schemaVersion` other than `1`, or a malformed `mods` list is refused with the reason.
 
 ---
 
@@ -725,13 +1170,26 @@ What it covers:
 | `tests/Lock.Tests.ps1` | Lockfile shape, ID mapping, no mod content, stable regeneration, content hashes that move only when a mod changes. |
 | `tests/Setup.Tests.ps1` | Game detection: real game files vs a folder that only has the right name, multi-drive Steam libraries parsed from `libraryfolders.vdf`, and a generated config the other tools can consume. |
 | `tests/Loader.Tests.ps1` | Loader version parsing, payload validation, install/update, base into staging, your load order preserved, backups, backup retention, hostile loader zips refused, and — against a stub patcher — that it uses `--patch`/`--unpatch` in the right order and never the toggle. |
+| `tests/LoaderRepatch.Tests.ps1` | `loader -PatchOnly`: one explicit `--patch`, never `--unpatch` or the toggle; nothing written on a dry run; no patcher call when the fingerprint matches; exit `1` with nothing written when `dtkit-patch.exe` or the mod entry bundle is missing; database copies made and pruned apart from loader folders; old state files without `bundleDb`. A normal install records `bundleDb` and keeps other tools' fields. `loader -RestoreBackup`: v1 → v2 → restore v1 with `--unpatch` then `--patch`, the replaced loader backed up first, game files in old full-folder backups never copied back, and an ambiguous `-BackupSet` refused. |
 | `tests/Export.Tests.ps1` | The loadout archive: every mod included, forward-slash entry names so it opens on any tool, no overwrite without `-Force`, never written inside the folder it's archiving. |
 | `tests/Import.Tests.ps1` | Export → import round trip onto an empty machine, replacing an existing install without merging stale files, traversal archives refused, and restore-plus-deploy in one run. |
 | `tests/Dispatcher.Tests.ps1` | `rollback` / `restore` without `-Apply` write nothing; with `-Apply` they reach the updater and deployer; `sync` does not deploy when update fails. |
+| `tests/LockPreserve.Tests.ps1` | Regenerating over an existing lockfile keeps its name unless `-Name` is passed, prints the change summary, and warns when `-NoHash` drops hashes; `sync -Apply` refreshes the lockfile with hashes after a deploy that copied files (robocopy's exit code `1`), and does not refresh it when the deploy fails or throws. |
 | `tests/UpgradeWorkflow.Tests.ps1` | The whole upgrade, in order, through `darktide.ps1`: dry run, `update -Apply` into staging only, `deploy -Apply` to make it live, `lock`, then rollback — including the two properties that look like bugs until you know staging is the source of truth. |
+| `tests/Upgrade.Tests.ps1` | The `upgrade` verb: answering no (or nothing) leaves staging, the game and both backup folders byte-identical; `-Yes` and `y` update staging and the game, make one backup set and one `gamemods-*.zip`, and the summary names both in its undo commands; the lockfile is regenerated; an archive that arrives while it asks is not installed; nothing to do exits 0 without asking; a failed update never reaches deploy; a running game (mocked) is warned about at plan time and refused at apply time; a `-NonInteractive` session without `-Yes` refuses instead of hanging. |
+| `tests/ModChanges.Tests.ps1` | The `changes` report against a hand-built backup set: added, removed and changed files (identical ones and `.nexus-mod.json` left out), old and new versions, `UNCHANGED`, `NEW` and `REMOVED` mods, a bracketed mod name read correctly and flagged as one rollback skips, `-BackupSet` by unique substring and refusal of an ambiguous or path-shaped one, `-Only` / `-Skip`, the 50-line cap, `-OutFile` JSON and markdown with `-Force`, no file content printed, staging, backups and game folder byte-for-byte unchanged, and the verb through `darktide.ps1`. |
 | `tests/FindUpdates.Tests.ps1` | The `links` list: a page for every mod with an id, a built one where the lockfile has no `url`, `no Nexus id` rather than a guess, `-Only` / `-Skip` / `-OutFile`, a malformed `githubRepo` reported and ignored, `same` vs `differs` (never “newer”), and a mocked GitHub call whose failures stay distinguishable. |
+| `tests/OpenPages.Tests.ps1` | `links -Open` against a mocked `Start-Process`: exactly the selected pages open, built from the id; a mod with no id is `no page`; nothing opens without `-Open` or over `-OpenLimit`; a shared id opens once; with `-CheckGitHub` only `differs` opens; a hostile lockfile `url`, `modId` or `game` never reaches `Start-Process`; nothing is written. Holds up off Windows. |
+| `tests/PinHolds.Tests.ps1` | `pin` and the updater honouring it: pin/unpin round trip back to the original bytes (on the shipped `mods-map.json` too), other keys and entry order kept, dry run writes nothing, `.bak` written, unknown folders and a broken map refused; a pinned mod with a newer zip is left untouched with no backup, with and without `-Force`; a pinned folder that is not installed is not installed; `PINNED` in the CSV and the JSON report, offline and (mocked) online. |
 | `tests/Attribution.Tests.ps1` | The validator's attribution checks actually fire — proven by feeding them content that must fail, so a check cannot rot into a no-op unnoticed. |
+| `tests/DownloadsIntake.Tests.ps1` | The `intake` verb: upgrade, same, older, unlocked, mismatched-id, not-DMF, `.7z`, renamed and duplicate archives each get the right status; the missing list carries Nexus pages; `-Only` / `-Skip`; exit `1` only on an id mismatch, also through `darktide.ps1`; `-OutFile` as JSON and markdown, no overwrite without `-Force`, never into staging; downloads and staging unchanged. |
 | `tests/Package.Tests.ps1` | The release package: only allow-listed files, no mod content or config, the archive builds and its manifest matches `-ListOnly`. |
+| `tests/PatchCheck.Tests.ps1` | `patchcheck` against a fake game and Steam manifest: no baseline, in sync by matching fingerprint (uppercase hash), database replaced, Steam update pending, no manifest, missing loader files, the timestamp fallback, `-Remember` writing only the baseline beside staging, the game folder left untouched, `PREDATES-PATCH` / `OK` / `PINNED` / `UNKNOWN` classification, `-OutFile`, and exit codes through the dispatcher. |
+| `tests/AllowlistCheck.Tests.ps1` | The validator's allow-list coverage check, run against a copy of the repository: it passes on the real layout, fails and names the script when a root script or a dispatcher reference is missing from `$Include`, accepts a script on its dev-only list, and fails rather than passing when it can no longer find the dispatcher's references. Runs on any OS. |
+| `tests/LoadoutDiff.Tests.ps1` | `diff`: added, removed, version bumps, changes in place, a null version reported as *now known* rather than changed, one insertion not flagging later entries as moved, identical inputs giving exit `0` and empty lists under stable keys, reading an export zip without extracting it, malformed, oversized and wrong-schema input refused, `current` against a fake staging folder with the repository lockfile left byte-identical, and `git:` revisions (skipped, not passed, where git is missing). |
+| `tests/ErrorBlame.Tests.ps1` | The `errors` verb against synthetic console logs: ranking and counts, a path fragment, a DMF tag carrying the display name, a folder name with brackets, DMF not blamed for a hook, newest log by write time, `-Last`, tail-only reading, a missing folder, an empty log, the no-mod-lines hint, redaction of the profile path and user name (before truncation), the 200-character cut, `-OutFile` json/md with `-Force`, and nothing written anywhere else. |
+| `tests/SettingsBackup.Tests.ps1` | The `settings` verb: a byte-identical backup; an unchanged file not backed up twice; same-second backups numbered, not overwritten; retention; dry-run backup and restore write nothing; restore takes a pre-restore backup first; ambiguous or unmatched `-BackupSet` refused; restore refused while the game runs; a missing settings file reported with nothing written; backups refused inside the repo, staging or the game folder. |
+| `tests/ModToggle.Tests.ps1` | `enable` / `disable`: a disable-then-enable round trip is byte-identical (CRLF, comments, BOM, no final newline); dry run and `-WhatIf` write nothing; unknown names, paths, `base` and `dmf` refused with nothing written; backups taken, kept out of `BackupRoot` and pruned by `-KeepBackups`; the disabled list; and a disabled mod staying disabled through `update -NoApi -Apply`. |
 | `tests/Profiles.Tests.ps1` | The `profile` verb: save (no overwrite without `-Force`, never inside staging), list and show, invalid names refused, a switch dry run that leaves staging, game and profiles byte-identical, refusals (missing mod, path entries, game running, wrong game folder, a `GamePath` deploy would reject as a drive root or too shallow) that write nothing, load-order backup and `-KeepBackups` pruning, success and failure reported correctly whatever `$LASTEXITCODE` says, undo by backup name, a real deploy reaching the game, the already-active switch as a no-op deploy, and `delete` needing `-Apply`. |
 
 ---
@@ -781,6 +1239,17 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser
 .\Test-Modpack.ps1
 ```
 
+Two of its checks guard the release allow-list (`$Include` in `New-ReleasePackage.ps1`).
+`release allow-list files exist` fails when the list names something that is not there.
+`release allow-list covers every dispatcher script` covers the opposite case: every `.ps1`
+at the repository root has to be on the list or on a short dev-only list inside the check,
+where each entry carries a reason (today that is only `New-ReleasePackage.ps1`), and every
+script `darktide.ps1` resolves with `Join-Path $PSScriptRoot '<name>.ps1'` has to ship.
+The dispatcher refuses to run any verb while one of its scripts is missing, so a script
+left off the list would break every verb in the released package while every other
+check stayed green. The failure message names each missing script. A new verb's script
+goes into `$Include` in the same commit that wires it into the dispatcher.
+
 ---
 
 ## Files
@@ -795,14 +1264,23 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser
 | `Install-DarktideLoader.ps1` | Installs/updates the mod loader, manages the bundle patch. |
 | `Export-DarktideLoadout.ps1` | Packs your loadout into one zip (local backup). |
 | `Import-DarktideLoadout.ps1` | Restores a loadout zip and deploys it. |
-| `Find-ModUpdates.ps1` | The `links` verb: Nexus pages for every mod, and GitHub release tags for mods mapped to a repository. No key, no writes. |
+| `Set-ModPin.ps1` | The `pin` verb: lists, adds and removes version holds in `mods-map.json`. Dry run until `-Apply`; keeps a `.bak`. |
+| `Invoke-DarktideUpgrade.ps1` | The `upgrade` verb: runs the update and deploy dry runs, shows one plan, asks once, then calls `Update-DarktideMods.ps1`, `Deploy-DarktideMods.ps1` and `New-ModpackLock.ps1` and prints the undo commands. Writes nothing itself. |
+| `Find-ModUpdates.ps1` | The `links` verb: Nexus pages for every mod, and GitHub release tags for mods mapped to a repository. `-Open` opens the pages in the browser. No key, no writes. |
+| `Get-DarktideBuildState.ps1` | The `patchcheck` verb: Steam build state, bundle database fingerprint vs the loader's record, missing loader files, mods installed before the last game update. No writes to the game folder. |
+| `Compare-DarktideLoadout.ps1` | The `diff` verb: compares two loadouts (lockfile, export zip, `git:<rev>` or current staging). Read-only. |
+| `Get-DarktideErrors.ps1` | The `errors` verb: reads the game's console logs and ranks the mods most likely behind their errors. Read-only, redacts your user name and profile path. |
+| `Backup-DarktideSettings.ps1` | The `settings` verb: backs up and restores `user_settings.config`, where your mod settings live. |
+| `Show-ModChanges.ps1` | The `changes` verb: what the last `update -Apply` changed, per mod, read from its backup set. No writes beyond `-OutFile`. |
+| `Set-ModState.ps1` | The `enable` / `disable` verbs: switches a mod on or off in the staging `mod_load_order.txt`, with a backup. |
+| `Test-DownloadedMods.ps1` | The `intake` verb: what each archive in `DownloadDir` is and what is still to download. No key, no network, no writes. |
 | `Switch-DarktideProfile.ps1` | The `profile` verb: named variants of the staging load order, switched with a backup and a deploy. |
 | `Test-Modpack.ps1` | Repository validator, used by CI. |
 | `Invoke-Tests.ps1` | Runs the Pester suite, then the validator. |
 | `tests/` | Pester tests. Sandboxed — no game, no key, no network. |
 | `.claude/skills/` | Repo skills for coding agents: how to validate a change, the safety invariants, and a script that sets up a test environment from scratch. |
 | `config.example.json` | Config template. Copy to `config.json` (gitignored). |
-| `mods-map.json` | Folder → Nexus mod ID, plus `pinned` flags and an optional `githubRepo`. |
+| `mods-map.json` | Folder → Nexus mod ID, plus `pinned` flags (set them with `pin`) and an optional `githubRepo`. |
 | `darktide-modpack.lock.json` | The loadout manifest. |
 
 ---
@@ -814,14 +1292,17 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser
 | `cannot be loaded because running scripts is disabled` | Execution policy. `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, then `Get-ChildItem *.ps1 \| Unblock-File`. |
 | `does not look like a Darktide install` | `GamePath` is wrong. It must be the folder containing `binaries\Darktide.exe` or `bundle\bundle_database.data` — not the Steam library root, not the `mods\` folder inside it. |
 | `is not a mods folder (no mod_load_order.txt, no base\)` | `ModsRoot` points somewhere that isn't a DMF mods folder. See step 3's note on creating staging. |
+| `This session cannot answer 'Apply this plan?'` | `upgrade` was run where nobody can type an answer (`-NonInteractive`, or a scheduled task with no one logged on). Run it in a PowerShell window, or add `-Yes`. |
 | `Darktide.exe is running` | You passed `-Apply` with the game open. Close it, or drop `-Apply` for a dry run. Hung process: `Get-Process Darktide`. |
 | `Nothing to do. Download mod archives...` | No `.zip` files in `DownloadDir`. Check the path in `config.json` and that your browser didn't save `.zip.crdownload`. |
 | Archive shows as `VERSION-UNKNOWN` | The filename was changed and the zip has no `info.json`. Install it deliberately: `.\darktide.ps1 update -Apply -Force -Only <folder>`. |
 | Archive shows as `NO-ARCHIVE` | That mod has no matching zip in `DownloadDir` — nothing is wrong, there's just nothing to install for it. |
+| A `.7z` or `.rar` download never installs | `update` only reads `.zip` and skips the rest without a message. `intake` lists them as `UNSUPPORTED-FORMAT`. Extract and re-zip, or install by hand. |
 | `Skipping '<file>': no *.mod file inside` | Not a DMF mod archive (a texture pack, a readme bundle, or a nested zip). Ignored on purpose. |
 | Deploy says `Already in sync` when you expected work | Staging really does match the game folder. If you edited the game folder directly, that edit is what `-Mirror` or `-Force` is for. |
-| Game crashes on load after an update | `.\darktide.ps1 restore -Apply`, then bisect: comment out half of `mod_load_order.txt` with `--` and restart. See [After a Darktide patch](#after-a-darktide-patch). |
-| Mods silently stop loading after a game update | Steam replaced the patched bundle. `.\darktide.ps1 loader -Apply` or `.\darktide.ps1 deploy -Apply -RunToggle`. |
+| Game crashes on load after an update | `.\darktide.ps1 restore -Apply`, then bisect: `.\darktide.ps1 disable -Only <half the mods> -Apply`, `deploy -Apply` and restart. See [After a Darktide patch](#after-a-darktide-patch). |
+| Game crashes, or a mod errors, after an update, and you want to know which | `.\darktide.ps1 errors` names the mod most likely behind it from the newest console log. See [Which mod crashed the game](#which-mod-crashed-the-game). |
+| Mods silently stop loading after a game update | Steam replaced the patched bundle. `.\darktide.ps1 loader -PatchOnly -Apply`. Avoid running the toggle bat by hand: it flips state, so a second run turns mods off again. |
 | `HTTP 403 ... premium users only` | Expected on a free Nexus account. Version *checking* works on free; downloading through the API does not. Download in the browser. |
 | `HTTP 429` / rate limited | Nexus allows 100 requests/hour, 2500/day. Wait it out, or use `-NoApi`. |
 
@@ -833,8 +1314,10 @@ Get-Content .\logs\update-*.log | Select-Object -Last 50
 Import-Csv (Get-ChildItem .\report-*.csv | Select-Object -Last 1) | Format-Table
 ```
 
-Every run writes a timestamped log to `logs\` and a CSV report next to the scripts. Both are
-gitignored; logs older than 30 days are pruned automatically.
+Every run writes a timestamped log to `logs\` and a CSV report next to the scripts, plus a
+JSON copy of the report with the same name (`report-*.json`) that also records when the
+run started, whether it was `-Apply`, offline or online, and the backup set it wrote, if
+any. All of them are gitignored; logs older than 30 days are pruned automatically.
 
 ### Verifying the tooling itself
 
