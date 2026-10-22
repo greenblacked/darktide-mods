@@ -175,6 +175,23 @@ Describe 'Get-LoadoutGap (need)' {
 
             (Get-Row $r.Data 'ALPHA_MOD')[0].status | Should -Be 'PRESENT'
         }
+
+        It 'leaves base out of their load order, as it does out of the mod rows' {
+            # base is skipped on both sides when mods are compared, so a load-order
+            # walk that does not skip it too finds it nowhere and calls it MISSING.
+            $f = New-FriendLock -Root $script:Root -Name 'base.lock.json' -LoadOrder @('base', 'alpha_mod') -Mods @(
+                (New-Mod -Folder 'base'      -Version '1.0.0'),
+                (New-Mod -Folder 'alpha_mod' -ModId 447 -Version '1.0.0')
+            )
+            $r = Invoke-Gap -LockPath $f -Staging $script:Staging -Out $script:Out
+
+            @($r.Data.loadOrder | ForEach-Object { "$($_.position):$($_.folder):$($_.status)" }) -join ' ' |
+                Should -Be '1:alpha_mod:PRESENT'
+            $r.Data.counts.missing | Should -Be 0
+
+            $out = & $script:Gapper -Path $f -ModsRoot $script:Staging *>&1 | Out-String
+            $out | Should -Not -Match 'base\s+<- MISSING'
+        }
     }
 
     Context 'DIFFERENT versus unknown' {

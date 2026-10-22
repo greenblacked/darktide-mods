@@ -545,6 +545,9 @@ foreach ($r in $rows) { $statusOf[$r.Folder] = $r.Status }
 $orderRows = New-Object System.Collections.Generic.List[object]
 $pos = 0
 foreach ($entry in $theirs.LoadOrder) {
+    # Skipped here as it is in the mod rows: base belongs to the mod loader, not to
+    # a mod, so neither side lists it and the walk would report it MISSING.
+    if ($script:IgnoreFolders -contains $entry) { continue }
     $pos++
     $st = if ($statusOf.ContainsKey($entry) -and $statusOf[$entry] -ne 'EXTRA') {
         $statusOf[$entry]
