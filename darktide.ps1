@@ -221,9 +221,13 @@ switch ($Verb) {
             Write-Host "  with author info   : $($withInfo.Count)"
         } else { Write-Err "  missing: $modsRoot" }
         $mapFile = Get-Cfg 'MapPath' (Join-Path $PSScriptRoot 'mods-map.json')
-        try { $pins = @(if (Test-Path -LiteralPath $mapFile) { (Get-Content -LiteralPath $mapFile -Raw -Encoding UTF8 | ConvertFrom-Json).PSObject.Properties | Where-Object { $_.Value -is [System.Management.Automation.PSCustomObject] -and $_.Value.PSObject.Properties.Name -contains 'pinned' -and $_.Value.pinned } | ForEach-Object { $_.Name } })
-              Write-Host "  pinned (held)      : $($pins.Count)$(if ($pins) { ' - ' + ($pins -join ', ') })" }
-        catch { Write-Warn "  pinned (held)      : unknown - $mapFile could not be read" }
+        try {
+            $entries = @(if (Test-Path -LiteralPath $mapFile) { (Get-Content -LiteralPath $mapFile -Raw -Encoding UTF8 | ConvertFrom-Json).PSObject.Properties })
+            $pins = @($entries | Where-Object { $_.Value -is [System.Management.Automation.PSCustomObject] -and
+                                                $_.Value.PSObject.Properties.Name -contains 'pinned' -and $_.Value.pinned } |
+                      ForEach-Object { $_.Name })
+            Write-Host "  pinned (held)      : $($pins.Count)$(if ($pins) { ' - ' + ($pins -join ', ') })"
+        } catch { Write-Warn "  pinned (held)      : unknown - $mapFile could not be read" }
 
         Write-Head 'Game folder'
         if ($gamePath -and (Test-Path -LiteralPath $gamePath)) {
