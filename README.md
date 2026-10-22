@@ -250,6 +250,7 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 | `lock -SyncIdsFromMap` | Copy non-null Nexus ids (and urls) from `mods-map.json` into the existing lockfile. No `ModsRoot` needed; versions and hashes stay put. |
 | `export` | Zip your whole loadout into one file, as a personal backup. |
 | `import` | Restore a loadout zip into staging and deploy it, in one step. |
+| `doctor` | Why mods won't load, and whether staging and the game match the lockfile. PASS/WARN/FAIL per check, with the fix for each problem. Works before `init`. Read-only. |
 
 ### Useful switches
 
@@ -264,7 +265,38 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 .\darktide.ps1 lock -SyncIdsFromMap                        # push mods-map ids into the lockfile
 .\darktide.ps1 links -OutFile updates.md                   # the check-by-hand list, as markdown
 .\darktide.ps1 links -CheckGitHub                          # ...and ask GitHub for release tags
+.\darktide.ps1 doctor -Quick                               # setup checks without hashing mod content
+.\darktide.ps1 doctor -OutFile doctor.md                   # ...and keep the report (.md or .json)
 ```
+
+### When mods don't load: `doctor`
+
+```powershell
+.\darktide.ps1 doctor
+```
+
+One read-only pass over everything that commonly stops mods loading, grouped into
+sections. Each check prints `PASS`, `WARN`, `FAIL` or `INFO`, every problem comes with
+the command that fixes it, and a summary at the end lists the FAILs to fix first. It
+exits `1` if anything FAILs and `0` otherwise.
+
+| Section | What it checks |
+|---|---|
+| Config | `config.json` is there and parses, `ModsRoot` and `GamePath` exist, and `GamePath` really is a Darktide install. With no `config.json` it says to run `init` and carries on with what it can. |
+| Load order | In staging and in the game's `mods\mod_load_order.txt`: entries with no folder (FAIL), folders nobody listed (WARN), duplicates including case and whitespace (WARN), `--` disabled entries (INFO), `dmf` missing (FAIL), byte-order mark and mixed line endings (INFO). |
+| Folder structure | Every mod is `<folder>\<folder>.mod`. An archive extracted one level too deep, or a `.mod` named differently from its folder, is a FAIL with the exact command that fixes it. Empty folders WARN; leftover `.staging-*` folders are INFO. |
+| Drift | Staging against the lockfile's per-mod content hashes (`CHANGED`, `MISSING`, `EXTRA`; a mod locked with no hash is reported as unknown), staging against the game folder, and the lockfile's load order against staging's. |
+| Loader | `.darktide-loader.json` and its `patched` flag, `bundle\*.patch_999`, `tools\dtkit-patch.exe`, and `mods\base` in the game. |
+
+`-Quick` skips content hashing: staging, the lockfile and the game are compared by folder
+name only, which takes seconds instead of minutes on a large loadout. `-OutFile` also
+writes the report as `.json` or `.md` (`-Force` to overwrite); nothing else is ever
+written, and it never touches the network.
+
+Two things it reports are heuristics this repository cannot verify. "dmf is listed but
+not first" is a WARN, not a FAIL, because that rule is common advice rather than
+something tested here. Whether a game update has replaced the patched bundle database is
+not checked at all; `doctor` points you at `.\darktide.ps1 patchcheck` for that.
 
 ---
 
@@ -673,6 +705,7 @@ What it covers:
 | `tests/UpgradeWorkflow.Tests.ps1` | The whole upgrade, in order, through `darktide.ps1`: dry run, `update -Apply` into staging only, `deploy -Apply` to make it live, `lock`, then rollback — including the two properties that look like bugs until you know staging is the source of truth. |
 | `tests/FindUpdates.Tests.ps1` | The `links` list: a page for every mod with an id, a built one where the lockfile has no `url`, `no Nexus id` rather than a guess, `-Only` / `-Skip` / `-OutFile`, a malformed `githubRepo` reported and ignored, `same` vs `differs` (never “newer”), and a mocked GitHub call whose failures stay distinguishable. |
 | `tests/Attribution.Tests.ps1` | The validator's attribution checks actually fire — proven by feeding them content that must fail, so a check cannot rot into a no-op unnoticed. |
+| `tests/Doctor.Tests.ps1` | `doctor` on a healthy sandbox is clean; each broken layout is caught at the right severity: ghost entry, unlisted folder, case/whitespace duplicate, nested extract, mismatched `.mod` name, empty folder, missing `dmf`, a staged file edited after locking, game content drifting from staging. `-Quick` skips hashing, no `config.json` is a FAIL with the `init` hint, `-OutFile` JSON parses, and staging and the game are byte-for-byte unchanged afterwards. |
 | `tests/Package.Tests.ps1` | The release package: only allow-listed files, no mod content or config, the archive builds and its manifest matches `-ListOnly`. |
 
 ---
@@ -736,6 +769,7 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser
 | `Install-DarktideLoader.ps1` | Installs/updates the mod loader, manages the bundle patch. |
 | `Export-DarktideLoadout.ps1` | Packs your loadout into one zip (local backup). |
 | `Import-DarktideLoadout.ps1` | Restores a loadout zip and deploys it. |
+| `Test-DarktideSetup.ps1` | The `doctor` verb: config, load order, folder layout, lockfile and game drift, loader. Read-only; writes only an `-OutFile` you ask for. |
 | `Find-ModUpdates.ps1` | The `links` verb: Nexus pages for every mod, and GitHub release tags for mods mapped to a repository. No key, no writes. |
 | `Test-Modpack.ps1` | Repository validator, used by CI. |
 | `Invoke-Tests.ps1` | Runs the Pester suite, then the validator. |
@@ -748,6 +782,9 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser
 ---
 
 ## Troubleshooting
+
+Start with `.\darktide.ps1 doctor`. It checks most of the causes below in one read-only
+pass and prints the fix for each problem it finds (add `-Quick` to skip content hashing).
 
 | Symptom | Cause and fix |
 |---|---|
