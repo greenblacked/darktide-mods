@@ -285,6 +285,23 @@ Describe 'Get-DarktideBuildState (patchcheck)' {
             $r.Report.steam.buildid | Should -Be '20055555'
         }
 
+        It 'ignores every field of a manifest that belongs to another app' {
+            Write-LoaderState -Game $script:Game
+            $other = Join-Path $script:Root 'other.acf'
+            Write-Acf -Path $other -BuildId '99999999' -TargetBuild '99999999'
+            (Get-Content -LiteralPath $other) -replace '"1361210"', '"570"' |
+                Set-Content -LiteralPath $other -Encoding ASCII
+
+            $r = Get-Report -Extra @{ ManifestPath = $other; Remember = $true }
+            $r.Report.steam.status        | Should -Be 'WRONG APP'
+            $r.Report.steam.buildid       | Should -BeNullOrEmpty
+            $r.Report.steam.targetBuildId | Should -BeNullOrEmpty
+            $r.Report.steam.stateFlags    | Should -BeNullOrEmpty
+            if (Test-Path -LiteralPath $script:Baseline) {
+                (Get-Content -LiteralPath $script:Baseline -Raw | ConvertFrom-Json).buildid | Should -BeNullOrEmpty
+            }
+        }
+
         It 'takes top-level keys only, case-insensitively' {
             $acf = Read-SteamManifest -Path $script:Acf
             $acf['buildid']       | Should -Be '20012345'

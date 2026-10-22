@@ -360,8 +360,14 @@ if ($acfPath -and (Test-Path -LiteralPath $acfPath -PathType Leaf)) {
         if ($steam.appid -and $steam.appid -ne $script:AppId) {
             Add-Finding WARN "'$acfPath' is for app $($steam.appid), not Darktide ($($script:AppId)). Ignoring it."
             $steam.status = 'WRONG APP'
-            $lastUpdatedUtc = $null
-            $steam.lastUpdated = $null
+            # Drop every value read from it, so none reaches the report, the baseline
+            # comparison or -Remember.
+            $lastUpdatedUtc      = $null
+            $steam.lastUpdated   = $null
+            $steam.installdir    = $null
+            $steam.buildid       = $null
+            $steam.targetBuildId = $null
+            $steam.stateFlags    = $null
         } else {
             Write-Host "  manifest     : $acfPath"
             Write-Host "  build id     : $(if ($steam.buildid) { $steam.buildid } else { '(not in manifest)' })"
