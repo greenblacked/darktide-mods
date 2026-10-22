@@ -304,7 +304,7 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 | `rollback` | Undo the last staging install. Dry run until `-Apply`. |
 | `restore` | Undo the last deploy to the game folder. Dry run until `-Apply`. |
 | `lock` | Regenerate `darktide-modpack.lock.json` from what's installed. Keeps the existing loadout name, and prints a one-line change summary before it overwrites. |
-| `lock -SyncIdsFromMap` | Copy non-null Nexus ids (and urls) from `mods-map.json` into the existing lockfile. No `ModsRoot` needed; versions and hashes stay put. |
+| `lock -SyncIdsFromMap` | Copy non-null Nexus ids (and urls) from `mods-map.json` into the existing lockfile. No `ModsRoot` needed; versions and hashes stay put. With `-OutFile <file>`, `<file>` is an existing lockfile to update in place instead of the repository one; there is no `-Force` check, because updating that file is the point. |
 | `export` | Zip your whole loadout into one file, as a personal backup. |
 | `import` | Restore a loadout zip into staging and deploy it, in one step. |
 | `upgrade` | The everyday command: the `update` and `deploy` dry runs as one plan, one `Apply this plan? [y/N]`, then update, deploy and the lockfile, ending with the backup names and the commands that undo them. A no writes nothing; `-Yes` skips the question. |
@@ -318,6 +318,8 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 | `pin` | Hold mods at their current version so `update` leaves them alone, `-Force` included. Lists pins on its own; `-Only` pins, `-Unpin` releases. Dry run until `-Apply`. See [Holding a mod back](#holding-a-mod-back). |
 | `intake` | Classify every archive in your download folder against staging and the lockfile, and list what is still to download. Run it before `update -Apply`. Read-only; exits `1` on an `ID-MISMATCH`. |
 | `profile` | Save, list, show, switch or delete named load orders such as `full` or `minimal`. `switch` deploys; it and `delete` are dry runs until `-Apply`. See [Profiles](#profiles). |
+| `lock -OutFile <file>` | Write the lockfile to `<file>` instead, to send to someone. The repository lockfile is not touched. Refuses to replace an existing file without `-Force` (except with `-SyncIdsFromMap`, see above). |
+| `need -Path <file>` | Compare a friend's lockfile with your staging: what you are missing (with its Nexus link), what differs, and where each missing mod goes in their load order. Read-only; never downloads. |
 
 ### Useful switches
 
@@ -334,6 +336,7 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 .\darktide.ps1 loader -RestoreBackup -BackupSet 20261021 -Apply   # ...or the one named
 .\darktide.ps1 update -Apply -Force -Only NumericUI         # reinstall or downgrade one mod
 .\darktide.ps1 lock -SyncIdsFromMap                        # push mods-map ids into the lockfile
+.\darktide.ps1 lock -SyncIdsFromMap -OutFile my-loadout.lock.json # ...into that existing file, in place
 .\darktide.ps1 links -OutFile updates.md                   # the check-by-hand list, as markdown
 .\darktide.ps1 links -CheckGitHub                          # ...and ask GitHub for release tags
 .\darktide.ps1 upgrade -Yes                                # apply the upgrade plan without asking
@@ -353,6 +356,8 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 .\darktide.ps1 pin -Only NumericUI -Unpin -Apply              # ...and let it update again
 .\darktide.ps1 intake -OutFile intake.json -Force          # what is in DownloadDir, as JSON
 .\darktide.ps1 profile -Action switch -Name minimal -Apply  # swap the load order and deploy
+.\darktide.ps1 lock -OutFile my-loadout.lock.json          # a lockfile to send a friend
+.\darktide.ps1 need -Path their.lock.json -OutFile need.md # what you lack, as a clickable checklist
 ```
 
 ---
@@ -529,6 +534,56 @@ an existing profile without `-Force`. `list` and `show` never write.
 The load-order backups live under the profiles folder rather than `BackupRoot` on purpose:
 `rollback` treats every folder in `BackupRoot` as a staging backup set and picks the newest
 by name, so a `loadorder` folder there would be chosen ahead of your real backups.
+
+---
+
+## Share a loadout with a friend
+
+The lockfile is a list, not a pack: folder names, versions, load order and a link to each
+author's Nexus page. It contains no mod files, so sending it to someone redistributes
+nothing. They still download every mod from its author.
+
+**You:**
+
+```powershell
+.\darktide.ps1 lock -OutFile my-loadout.lock.json
+```
+
+This writes a fresh lockfile from your staging to `my-loadout.lock.json` and leaves the
+repository's `darktide-modpack.lock.json` alone. Send that one JSON file.
+
+**Your friend:**
+
+```powershell
+.\darktide.ps1 need -Path .\my-loadout.lock.json -OutFile need.md
+```
+
+`need` sorts every mod into one of four rows:
+
+| Row | Meaning |
+|---|---|
+| `MISSING` | In the lockfile, not in your staging. Shows its Nexus page, or `no Nexus id in their lockfile` when there is nothing to link. |
+| `DIFFERENT` | You both have it, but the version or the content hash differs. A value missing on either side counts as unknown, not different. |
+| `PRESENT` | You both have it and nothing known differs. |
+| `EXTRA` | You have it and they do not. Informational. |
+
+It then prints their load order with your missing mods marked, so you can see where each
+one goes in `mod_load_order.txt`. `-OutFile need.md` writes the same thing as a checklist
+with one link per mod; `-OutFile need.json` writes it as data. Neither replaces an existing
+file without `-Force`.
+
+Download each missing mod from its page, then `.\darktide.ps1 update -Apply` and
+`.\darktide.ps1 deploy -Apply` as usual. `need` itself writes nothing but the `-OutFile`,
+never downloads, and never touches the network.
+
+A lockfile from someone else is treated as untrusted. A file over 512 KB, or one that is not
+`schemaVersion` 1, is refused. An entry whose folder name holds a path separator, `..`, a
+wildcard, a character Windows does not allow in a file name, or a reserved device name is
+dropped and reported, as is any url that is not a plain `https://www.nexusmods.com/` link
+and any `modId` that is not a whole number. Control characters in names are replaced
+before anything is printed. Folder names from the file are never used to build a path:
+your staging folder is listed once and matched by name. When anything was dropped, `need`
+lists it and exits `1`.
 
 ---
 
@@ -1183,6 +1238,7 @@ What it covers:
 | `tests/PinHolds.Tests.ps1` | `pin` and the updater honouring it: pin/unpin round trip back to the original bytes (on the shipped `mods-map.json` too), other keys and entry order kept, dry run writes nothing, `.bak` written, unknown folders and a broken map refused; a pinned mod with a newer zip is left untouched with no backup, with and without `-Force`; a pinned folder that is not installed is not installed; `PINNED` in the CSV and the JSON report, offline and (mocked) online. |
 | `tests/Attribution.Tests.ps1` | The validator's attribution checks actually fire — proven by feeding them content that must fail, so a check cannot rot into a no-op unnoticed. |
 | `tests/DownloadsIntake.Tests.ps1` | The `intake` verb: upgrade, same, older, unlocked, mismatched-id, not-DMF, `.7z`, renamed and duplicate archives each get the right status; the missing list carries Nexus pages; `-Only` / `-Skip`; exit `1` only on an id mismatch, also through `darktide.ps1`; `-OutFile` as JSON and markdown, no overwrite without `-Force`, never into staging; downloads and staging unchanged. |
+| `tests/LoadoutNeed.Tests.ps1` | `need` against a friend's lockfile: the exact `MISSING` set and its links, `no Nexus id` when there is none, `DIFFERENT` vs unknown (including a content hash that must agree with `New-ModpackLock.ps1`), load order marking (`base` left out, bracketed folder names matched); hostile folder names, non-Nexus urls, bad ids, oversize files, wrong schema and terminal escape sequences refused or neutralised; `-OutFile` `.md` / `.json` and `-Force`; staging and the repository lockfile unchanged; the network mocked and never called; `need` exits 1 through the dispatcher, including as a separate process, when anything was dropped, and 0 on a clean run after a stale failure code; `lock -OutFile` writes the given path and `lock -SyncIdsFromMap -OutFile` edits the given copy, both leaving the repository lockfile byte-identical. |
 | `tests/Package.Tests.ps1` | The release package: only allow-listed files, no mod content or config, the archive builds and its manifest matches `-ListOnly`. |
 | `tests/PatchCheck.Tests.ps1` | `patchcheck` against a fake game and Steam manifest: no baseline, in sync by matching fingerprint (uppercase hash), database replaced, Steam update pending, no manifest, missing loader files, the timestamp fallback, `-Remember` writing only the baseline beside staging, the game folder left untouched, `PREDATES-PATCH` / `OK` / `PINNED` / `UNKNOWN` classification, `-OutFile`, and exit codes through the dispatcher. |
 | `tests/AllowlistCheck.Tests.ps1` | The validator's allow-list coverage check, run against a copy of the repository: it passes on the real layout, fails and names the script when a root script or a dispatcher reference is missing from `$Include`, accepts a script on its dev-only list, and fails rather than passing when it can no longer find the dispatcher's references. Runs on any OS. |
@@ -1264,6 +1320,7 @@ goes into `$Include` in the same commit that wires it into the dispatcher.
 | `Install-DarktideLoader.ps1` | Installs/updates the mod loader, manages the bundle patch. |
 | `Export-DarktideLoadout.ps1` | Packs your loadout into one zip (local backup). |
 | `Import-DarktideLoadout.ps1` | Restores a loadout zip and deploys it. |
+| `Get-LoadoutGap.ps1` | The `need` verb: compares a friend's lockfile with your staging and lists what you lack, with Nexus links. No network, no writes beyond `-OutFile`. |
 | `Set-ModPin.ps1` | The `pin` verb: lists, adds and removes version holds in `mods-map.json`. Dry run until `-Apply`; keeps a `.bak`. |
 | `Invoke-DarktideUpgrade.ps1` | The `upgrade` verb: runs the update and deploy dry runs, shows one plan, asks once, then calls `Update-DarktideMods.ps1`, `Deploy-DarktideMods.ps1` and `New-ModpackLock.ps1` and prints the undo commands. Writes nothing itself. |
 | `Find-ModUpdates.ps1` | The `links` verb: Nexus pages for every mod, and GitHub release tags for mods mapped to a repository. `-Open` opens the pages in the browser. No key, no writes. |

@@ -88,7 +88,8 @@ $Include = @(
     'Set-ModState.ps1',
     'Set-ModPin.ps1',
     'Test-DownloadedMods.ps1',
-    'Switch-DarktideProfile.ps1'
+    'Switch-DarktideProfile.ps1',
+    'Get-LoadoutGap.ps1'
 )
 
 if ($ListOnly) {
