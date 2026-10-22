@@ -113,7 +113,7 @@ Describe 'Set-ModPin' {
         It 'writes nothing without -Apply' {
             $before = Get-TreeFingerprint -Path $script:Root
 
-            $out = & $script:Pinner -ConfigPath $script:Config -Only alpha_mod -Reason 'crashes on 1.4' *>&1 | Out-String
+            $out = @(& $script:Pinner -ConfigPath $script:Config -Only alpha_mod -Reason 'crashes on 1.4' *>&1 | ForEach-Object { [string]$_ }) -join "`n"
 
             $out | Should -Match 'DRY RUN'
             $out | Should -Match 'Nothing was written'
@@ -124,7 +124,7 @@ Describe 'Set-ModPin' {
         It 'listing writes nothing either' {
             $before = Get-TreeFingerprint -Path $script:Root
 
-            $out = & $script:Pinner -ConfigPath $script:Config *>&1 | Out-String
+            $out = @(& $script:Pinner -ConfigPath $script:Config *>&1 | ForEach-Object { [string]$_ }) -join "`n"
 
             $out | Should -Match 'No mods are pinned'
             Get-TreeFingerprint -Path $script:Root | Should -Be $before
@@ -221,7 +221,7 @@ Describe 'Set-ModPin' {
         It 'lists the pin with its version, reason and date' {
             & $script:Pinner -ConfigPath $script:Config -Only alpha_mod -Reason 'crashes on 1.4' -Apply *>&1 | Out-Null
 
-            $out = & $script:Pinner -ConfigPath $script:Config *>&1 | Out-String
+            $out = @(& $script:Pinner -ConfigPath $script:Config *>&1 | ForEach-Object { [string]$_ }) -join "`n"
 
             $out | Should -Match 'Pinned: 1'
             $out | Should -Match 'alpha_mod\s+1\.0\.0\s+1\.0\.0\s+crashes on 1\.4\s+\d{4}-\d{2}-\d{2}'
@@ -250,7 +250,7 @@ Describe 'Set-ModPin' {
         It 'writes nothing when the folder is not pinned' {
             $before = Get-TreeFingerprint -Path $script:Root
 
-            $out = & $script:Pinner -ConfigPath $script:Config -Only alpha_mod -Unpin -Apply *>&1 | Out-String
+            $out = @(& $script:Pinner -ConfigPath $script:Config -Only alpha_mod -Unpin -Apply *>&1 | ForEach-Object { [string]$_ }) -join "`n"
 
             $out | Should -Match 'Nothing to change'
             Get-TreeFingerprint -Path $script:Root | Should -Be $before
@@ -260,8 +260,24 @@ Describe 'Set-ModPin' {
             # The real file is the one people diff. Pinning and unpinning a mod in it
             # must leave every other line exactly as it was.
             Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'mods-map.json') -Destination $script:Map -Force
-            $real  = [System.IO.File]::ReadAllBytes($script:Map)
-            $first = @((Read-Map $script:Map).PSObject.Properties.Name)[0]
+            $real = [System.IO.File]::ReadAllBytes($script:Map)
+
+            # Only an entry that reads "pinned": false with no pin keys comes back to the
+            # same bytes after pin + unpin. Taking whichever entry is first would turn
+            # this red the day a real pin is committed.
+            $candidates = @((Read-Map $script:Map).PSObject.Properties | Where-Object {
+                $names = @($_.Value.PSObject.Properties.Name)
+                ($_.Value -is [System.Management.Automation.PSCustomObject]) -and
+                ($_.Name -notmatch ',') -and
+                ($names -contains 'pinned') -and ($_.Value.pinned -eq $false) -and
+                ($names -notcontains 'pinnedVersion') -and ($names -notcontains 'pinnedReason') -and
+                ($names -notcontains 'pinnedAt')
+            } | ForEach-Object { $_.Name })
+            if ($candidates.Count -eq 0) {
+                Set-ItResult -Skipped -Because 'the shipped mods-map.json has no unpinned entry to round-trip'
+                return
+            }
+            $first = $candidates[0]
 
             & $script:Pinner -ConfigPath $script:Config -Only $first -Reason 'x' -Apply *>&1 | Out-Null
             (Read-Map $script:Map).$first.pinned | Should -BeTrue
@@ -310,7 +326,7 @@ Describe 'Set-ModPin' {
             & $script:Dispatcher pin -ConfigPath $script:Config -Only alpha_mod -Reason 'crashes on 1.4' -Apply *>&1 | Out-Null
             (Read-Map $script:Map).alpha_mod.pinned | Should -BeTrue
 
-            $list = & $script:Dispatcher pin -ConfigPath $script:Config *>&1 | Out-String
+            $list = @(& $script:Dispatcher pin -ConfigPath $script:Config *>&1 | ForEach-Object { [string]$_ }) -join "`n"
             $list | Should -Match 'alpha_mod'
             $list | Should -Match 'crashes on 1\.4'
 
@@ -330,7 +346,7 @@ Describe 'Set-ModPin' {
         It 'shows the pinned folders in status' {
             & $script:Dispatcher pin -ConfigPath $script:Config -Only alpha_mod,gamma_mod -Apply *>&1 | Out-Null
 
-            $out = & $script:Dispatcher status -ConfigPath $script:Config *>&1 | Out-String
+            $out = @(& $script:Dispatcher status -ConfigPath $script:Config *>&1 | ForEach-Object { [string]$_ }) -join "`n"
 
             $out | Should -Match 'pinned \(held\)\s+: 2 - alpha_mod, gamma_mod'
         }
