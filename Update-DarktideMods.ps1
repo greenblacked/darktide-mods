@@ -975,7 +975,11 @@ function Install-ModArchive {
 }
 
 function Update-LoadOrder {
-    <# Appends any mod folder that is missing from mod_load_order.txt. Never reorders. #>
+    <#
+      Appends any mod folder that is missing from mod_load_order.txt. Never reorders.
+      A '--name' line counts as present: that is a mod switched off on purpose
+      (darktide.ps1 disable), and appending a fresh 'name' would switch it back on.
+    #>
     [CmdletBinding(SupportsShouldProcess = $true)]
     param([string] $ModsRoot, [string[]] $ModNames)
 
@@ -986,8 +990,10 @@ function Update-LoadOrder {
     }
 
     $lines   = @(Get-Content -LiteralPath $path -Encoding UTF8)
-    $present = @($lines | ForEach-Object { $_.Trim() } |
-                 Where-Object { $_ -and -not $_.StartsWith('--') })
+    $present = @($lines | ForEach-Object {
+                     $t = $_.Trim()
+                     if ($t.StartsWith('--')) { $t.Substring(2).Trim() } else { $t }
+                 } | Where-Object { $_ })
 
     $missing = @($ModNames | Where-Object { $_ -and $present -notcontains $_ -and $_ -notin @('base','dmf') })
     if (-not $missing) { return }
