@@ -20,6 +20,7 @@
         .\darktide.ps1 loader     install or update the Darktide Mod Loader
         .\darktide.ps1 export     zip your whole loadout as a personal backup
         .\darktide.ps1 import     restore a loadout zip and deploy it
+        .\darktide.ps1 pin        list held mods; with -Only, hold them at their version
 
     Everything is a dry run until you add -Apply, except 'status', 'check' and
     'links' which never write anything, and 'lock' which always writes the
@@ -39,6 +40,12 @@
 
 .PARAMETER Apply
     Actually make changes. Without it you get a plan and nothing else.
+
+.PARAMETER Unpin
+    With 'pin': release the -Only mods instead of holding them.
+
+.PARAMETER Reason
+    With 'pin': why the mod is held, e.g. 'crashes on 1.4'. Shown when listing pins.
 
 .EXAMPLE
     .\darktide.ps1 sync
@@ -64,13 +71,18 @@
     .\darktide.ps1 links
     Every mod and its Nexus page, so checking by hand is a list of links. No key,
     no network.
+
+.EXAMPLE
+    .\darktide.ps1 pin -Only NumericUI -Reason 'crashes on 1.4' -Apply
+    Hold NumericUI at its installed version. update reports it as PINNED and leaves
+    it alone, -Force included, until: .\darktide.ps1 pin -Only NumericUI -Unpin -Apply
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
     [ValidateSet('init', 'status', 'check', 'links', 'update', 'deploy', 'sync', 'rollback', 'restore',
-                 'lock', 'loader', 'export', 'import', 'help')]
+                 'lock', 'loader', 'export', 'import', 'help', 'pin')]
     [string]   $Verb = 'help',
 
     [switch]   $Apply,
@@ -88,6 +100,8 @@ param(
     [string]   $Source,
     [string]   $GamePath,
     [switch]   $Deploy,
+    [switch]   $Unpin,
+    [string]   $Reason,
     [string]   $ConfigPath = (Join-Path $PSScriptRoot 'config.json')
 )
 
@@ -107,8 +121,9 @@ $Importer = Join-Path $PSScriptRoot 'Import-DarktideLoadout.ps1'
 $Initer   = Join-Path $PSScriptRoot 'Initialize-DarktideConfig.ps1'
 $Loaderer = Join-Path $PSScriptRoot 'Install-DarktideLoader.ps1'
 $Finder   = Join-Path $PSScriptRoot 'Find-ModUpdates.ps1'
+$Pinner   = Join-Path $PSScriptRoot 'Set-ModPin.ps1'
 
-foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder)) {
+foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Pinner)) {
     if (-not (Test-Path -LiteralPath $s)) { throw "Missing script: $s" }
 }
 
@@ -138,6 +153,15 @@ if ($Verb -eq 'links') {
 if ($Verb -eq 'lock' -and $SyncIdsFromMap) {
     Write-Head 'Syncing lockfile Nexus ids from mods-map'
     & $Locker -SyncIdsFromMap
+    return
+}
+
+# 'pin' edits mods-map.json only. It reads config.json for MapPath and ModsRoot when
+# there is one, and works on the map alone when there is not.
+if ($Verb -eq 'pin') {
+    $listing = -not $Only
+    Write-Head "$(if ($listing) { 'Pinned mods' } elseif ($Unpin) { 'Unpinning mods' } else { 'Pinning mods' })$(if (-not $listing -and -not $Apply) { ' (dry run)' })"
+    & $Pinner -ConfigPath $ConfigPath -Only $Only -Reason $Reason -Unpin:$Unpin -Apply:$Apply -Confirm:$false
     return
 }
 
@@ -196,6 +220,10 @@ switch ($Verb) {
             Write-Host "  version-tracked    : $($tracked.Count)"
             Write-Host "  with author info   : $($withInfo.Count)"
         } else { Write-Err "  missing: $modsRoot" }
+        $mapFile = Get-Cfg 'MapPath' (Join-Path $PSScriptRoot 'mods-map.json')
+        try { $pins = @(if (Test-Path -LiteralPath $mapFile) { (Get-Content -LiteralPath $mapFile -Raw -Encoding UTF8 | ConvertFrom-Json).PSObject.Properties | Where-Object { $_.Value -is [System.Management.Automation.PSCustomObject] -and $_.Value.PSObject.Properties.Name -contains 'pinned' -and $_.Value.pinned } | ForEach-Object { $_.Name } })
+              Write-Host "  pinned (held)      : $($pins.Count)$(if ($pins) { ' - ' + ($pins -join ', ') })" }
+        catch { Write-Warn "  pinned (held)      : unknown - $mapFile could not be read" }
 
         Write-Head 'Game folder'
         if ($gamePath -and (Test-Path -LiteralPath $gamePath)) {
