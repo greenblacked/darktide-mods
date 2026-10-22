@@ -283,20 +283,36 @@ switch ($Verb) {
     'sync' {
         Write-Head "Full sync: update staging, then deploy$(if (-not $Apply) { ' (dry run)' })"
 
+        # $LASTEXITCODE is global and only a native command or an 'exit' sets it, so a
+        # value left over from anything run earlier in this session would read as this
+        # step failing. The updater runs no native commands; its 'exit 1' is the signal.
+        # (Setting it here also keeps StrictMode happy in a fresh session.)
+        $global:LASTEXITCODE = 0
         & $Updater -ConfigPath $ConfigPath -NoApi -Apply:$Apply -Force:$Force -Only $Only -Skip $Skip
-        # $LASTEXITCODE may be undefined in a fresh session, which StrictMode treats as an error.
-        $code = if (Test-Path Variable:LASTEXITCODE) { $LASTEXITCODE } else { 0 }
-        if ($code -and $code -ne 0) { throw 'Update step failed - not deploying.' }
+        if ($LASTEXITCODE -ne 0) { throw 'Update step failed - not deploying.' }
 
+        # Not $LASTEXITCODE for the deploy: robocopy leaves 1 ('files copied') in it after
+        # a good deploy, the same value as the script's own 'exit 1' for a bad one. A
+        # failed deploy either throws or reaches 'exit 1' without printing 'Deploy OK.',
+        # so that line is the success signal. -InformationVariable collects the deploy's
+        # Write-Host records and they still reach the console. A dry run returns before
+        # the post-checks and refreshes nothing, so only -Apply needs the signal.
+        $deployLog = $null
         & $Deployer -ConfigPath $ConfigPath -Apply:$Apply -Mirror:$Mirror `
-                    -InstallLoader:$InstallLoader -RunToggle:$RunToggle -Force:$Force
-        $code = if (Test-Path Variable:LASTEXITCODE) { $LASTEXITCODE } else { 0 }
-        if ($code -and $code -ne 0) { throw 'Deploy step finished with problems - lockfile not refreshed.' }
+                    -InstallLoader:$InstallLoader -RunToggle:$RunToggle -Force:$Force `
+                    -InformationVariable deployLog
 
         if ($Apply) {
+            $deployOk = @($deployLog | Where-Object { "$($_.MessageData)".Trim() -eq 'Deploy OK.' }).Count -gt 0
+            if (-not $deployOk) { throw 'Deploy step finished with problems - lockfile not refreshed.' }
+
+            # Hashed, not -NoHash: contentSha256 is what lets the lockfile show that an
+            # installed mod has drifted, and -NoHash writes null over every one of them.
             Write-Head 'Refreshing lockfile'
-            & $Locker -ModsRoot $modsRoot -NoHash
+            & $Locker -ModsRoot $modsRoot
         }
+        # Do not hand robocopy's leftover 1 to whoever called this.
+        $global:LASTEXITCODE = 0
         return
     }
 
