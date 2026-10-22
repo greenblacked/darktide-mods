@@ -105,8 +105,11 @@ BeforeAll {
             $eap = $ErrorActionPreference
             $ErrorActionPreference = 'Continue'
             try {
-                # '*>&1': the validator reports through Write-Host.
-                $out = & (Join-Path $Root 'Test-Modpack.ps1') *>&1 | Out-String
+                # '*>&1': the validator reports through Write-Host. Each record is
+                # turned into its own text rather than piped through Out-String,
+                # which on Windows PowerShell 5.1 word-wraps at the host width and
+                # would cut the message under FAIL across several lines.
+                $out = @(& (Join-Path $Root 'Test-Modpack.ps1') *>&1 | ForEach-Object { [string]$_ }) -join "`n"
             } finally { $ErrorActionPreference = $eap }
         } finally { Pop-Location }
 
