@@ -20,10 +20,12 @@
         .\darktide.ps1 loader     install or update the Darktide Mod Loader
         .\darktide.ps1 export     zip your whole loadout as a personal backup
         .\darktide.ps1 import     restore a loadout zip and deploy it
+        .\darktide.ps1 doctor     why mods will not load, and whether staging matches
+                                  the lockfile (read-only; -Quick skips hashing)
 
-    Everything is a dry run until you add -Apply, except 'status', 'check' and
-    'links' which never write anything, and 'lock' which always writes the
-    manifest. The dry-run default includes rollback and restore.
+    Everything is a dry run until you add -Apply, except 'status', 'check',
+    'links' and 'doctor' which never write anything, and 'lock' which always
+    writes the manifest. The dry-run default includes rollback and restore.
 
 .PARAMETER Verb
     Which action to run. See above.
@@ -39,6 +41,10 @@
 
 .PARAMETER Apply
     Actually make changes. Without it you get a plan and nothing else.
+
+.PARAMETER Quick
+    With 'doctor': compare staging, the lockfile and the game folder by folder
+    name only, without hashing their contents.
 
 .EXAMPLE
     .\darktide.ps1 sync
@@ -64,13 +70,18 @@
     .\darktide.ps1 links
     Every mod and its Nexus page, so checking by hand is a list of links. No key,
     no network.
+
+.EXAMPLE
+    .\darktide.ps1 doctor
+    Every PASS/WARN/FAIL check on config, load order, folder layout, drift and the
+    loader, with the command that fixes each problem. Works before 'init'.
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
     [ValidateSet('init', 'status', 'check', 'links', 'update', 'deploy', 'sync', 'rollback', 'restore',
-                 'lock', 'loader', 'export', 'import', 'help')]
+                 'lock', 'loader', 'export', 'import', 'help', 'doctor')]
     [string]   $Verb = 'help',
 
     [switch]   $Apply,
@@ -88,6 +99,7 @@ param(
     [string]   $Source,
     [string]   $GamePath,
     [switch]   $Deploy,
+    [switch]   $Quick,
     [string]   $ConfigPath = (Join-Path $PSScriptRoot 'config.json')
 )
 
@@ -107,8 +119,9 @@ $Importer = Join-Path $PSScriptRoot 'Import-DarktideLoadout.ps1'
 $Initer   = Join-Path $PSScriptRoot 'Initialize-DarktideConfig.ps1'
 $Loaderer = Join-Path $PSScriptRoot 'Install-DarktideLoader.ps1'
 $Finder   = Join-Path $PSScriptRoot 'Find-ModUpdates.ps1'
+$Doctor   = Join-Path $PSScriptRoot 'Test-DarktideSetup.ps1'
 
-foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder)) {
+foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Doctor)) {
     if (-not (Test-Path -LiteralPath $s)) { throw "Missing script: $s" }
 }
 
@@ -131,6 +144,16 @@ if ($Verb -eq 'help') {
 if ($Verb -eq 'links') {
     Write-Head 'Where to check for updates'
     & $Finder -CheckGitHub:$CheckGitHub -Only $Only -Skip $Skip -OutFile $OutFile
+    return
+}
+
+# 'doctor' is what you run when setup is broken, which includes having no config
+# yet: it reports that as a FAIL and checks whatever else it can.
+if ($Verb -eq 'doctor') {
+    Write-Head 'Checking your Darktide mod setup'
+    & $Doctor -ConfigPath $ConfigPath -GamePath $GamePath -Quick:$Quick -OutFile $OutFile -Force:$Force
+    $code = if (Test-Path Variable:LASTEXITCODE) { $LASTEXITCODE } else { 0 }
+    if ($code) { exit $code }
     return
 }
 
