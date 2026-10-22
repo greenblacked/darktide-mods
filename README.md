@@ -250,6 +250,7 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 | `lock -SyncIdsFromMap` | Copy non-null Nexus ids (and urls) from `mods-map.json` into the existing lockfile. No `ModsRoot` needed; versions and hashes stay put. |
 | `export` | Zip your whole loadout into one file, as a personal backup. |
 | `import` | Restore a loadout zip into staging and deploy it, in one step. |
+| `changes` | After `update -Apply`, before `deploy`: per mod, the old and new version and which files were added, removed or changed. Read-only. |
 
 ### Useful switches
 
@@ -437,6 +438,38 @@ One folder only:
 ```
 
 `-Force` is the deliberate reinstall or downgrade. Without it, older zips stay skipped.
+
+#### See what the update changed before you deploy
+
+`update -Apply` zips every mod it replaces into a backup set under `BackupRoot`, named
+after the time of the run. `changes` compares that set with staging, so you can judge an
+update before it reaches the game:
+
+```powershell
+.\darktide.ps1 update -Apply
+.\darktide.ps1 changes                         # newest backup set vs staging
+.\darktide.ps1 changes -BackupSet 1020-18      # any unique part of an older set's name
+.\darktide.ps1 changes -OutFile changes.md     # every file listed; .json works too
+```
+
+You get one row per mod with its old and new version and how many files were added
+(`+`), removed (`-`) and changed (`~`), then the file names under each mod. Files are
+compared by SHA-256; `.nexus-mod.json` is ignored because every install rewrites it. A
+mod installed by the run with no earlier copy is `NEW`; a backed-up mod whose folder is
+gone is `REMOVED`. The console shows at most 50 file names per mod; `-OutFile` has them
+all. It prints names, never file content.
+
+It writes nothing except `-OutFile` (which needs `-Force` to overwrite) and never looks
+at the game folder. It ends with the matching undo,
+`.\darktide.ps1 rollback -BackupSet <set> -Apply`, followed by `deploy -Apply`. Rollback
+restores every mod in the set and does not delete mods marked `NEW`. Rollback also
+skips a mod whose name it treats as unsafe (one containing `[` or `]`, for instance);
+`changes` names any such mod so the undo does not promise more than it does.
+
+`NEW` is worked out from the install time update writes into `.nexus-mod.json`. A mod
+without one falls back to its folder's last-write time, so a mod copied into staging by
+hand after the update shows as `NEW` too. A run that only added new mods replaces
+nothing and so leaves no backup set; its mods appear as `NEW` against the set before it.
 
 ### 6. When you want to look on Nexus yourself
 
@@ -671,6 +704,7 @@ What it covers:
 | `tests/Import.Tests.ps1` | Export → import round trip onto an empty machine, replacing an existing install without merging stale files, traversal archives refused, and restore-plus-deploy in one run. |
 | `tests/Dispatcher.Tests.ps1` | `rollback` / `restore` without `-Apply` write nothing; with `-Apply` they reach the updater and deployer; `sync` does not deploy when update fails. |
 | `tests/UpgradeWorkflow.Tests.ps1` | The whole upgrade, in order, through `darktide.ps1`: dry run, `update -Apply` into staging only, `deploy -Apply` to make it live, `lock`, then rollback — including the two properties that look like bugs until you know staging is the source of truth. |
+| `tests/ModChanges.Tests.ps1` | The `changes` report against a hand-built backup set: added, removed and changed files (identical ones and `.nexus-mod.json` left out), old and new versions, `UNCHANGED`, `NEW` and `REMOVED` mods, a bracketed mod name read correctly and flagged as one rollback skips, `-BackupSet` by unique substring and refusal of an ambiguous or path-shaped one, `-Only` / `-Skip`, the 50-line cap, `-OutFile` JSON and markdown with `-Force`, no file content printed, staging, backups and game folder byte-for-byte unchanged, and the verb through `darktide.ps1`. |
 | `tests/FindUpdates.Tests.ps1` | The `links` list: a page for every mod with an id, a built one where the lockfile has no `url`, `no Nexus id` rather than a guess, `-Only` / `-Skip` / `-OutFile`, a malformed `githubRepo` reported and ignored, `same` vs `differs` (never “newer”), and a mocked GitHub call whose failures stay distinguishable. |
 | `tests/Attribution.Tests.ps1` | The validator's attribution checks actually fire — proven by feeding them content that must fail, so a check cannot rot into a no-op unnoticed. |
 | `tests/Package.Tests.ps1` | The release package: only allow-listed files, no mod content or config, the archive builds and its manifest matches `-ListOnly`. |
@@ -737,6 +771,7 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser
 | `Export-DarktideLoadout.ps1` | Packs your loadout into one zip (local backup). |
 | `Import-DarktideLoadout.ps1` | Restores a loadout zip and deploys it. |
 | `Find-ModUpdates.ps1` | The `links` verb: Nexus pages for every mod, and GitHub release tags for mods mapped to a repository. No key, no writes. |
+| `Show-ModChanges.ps1` | The `changes` verb: what the last `update -Apply` changed, per mod, read from its backup set. No writes beyond `-OutFile`. |
 | `Test-Modpack.ps1` | Repository validator, used by CI. |
 | `Invoke-Tests.ps1` | Runs the Pester suite, then the validator. |
 | `tests/` | Pester tests. Sandboxed — no game, no key, no network. |
