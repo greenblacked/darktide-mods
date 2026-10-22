@@ -320,6 +320,7 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 | `profile` | Save, list, show, switch or delete named load orders such as `full` or `minimal`. `switch` deploys; it and `delete` are dry runs until `-Apply`. See [Profiles](#profiles). |
 | `lock -OutFile <file>` | Write the lockfile to `<file>` instead, to send to someone. The repository lockfile is not touched. Refuses to replace an existing file without `-Force` (except with `-SyncIdsFromMap`, see above). |
 | `need -Path <file>` | Compare a friend's lockfile with your staging: what you are missing (with its Nexus link), what differs, and where each missing mod goes in their load order. Read-only; never downloads. |
+| `support` | One redacted zip to attach to a bug report: versions, mod lists, load order, log tails. Dry run until `-Apply`; works without `config.json`. |
 
 ### Useful switches
 
@@ -1247,6 +1248,7 @@ What it covers:
 | `tests/SettingsBackup.Tests.ps1` | The `settings` verb: a byte-identical backup; an unchanged file not backed up twice; same-second backups numbered, not overwritten; retention; dry-run backup and restore write nothing; restore takes a pre-restore backup first; ambiguous or unmatched `-BackupSet` refused; restore refused while the game runs; a missing settings file reported with nothing written; backups refused inside the repo, staging or the game folder. |
 | `tests/ModToggle.Tests.ps1` | `enable` / `disable`: a disable-then-enable round trip is byte-identical (CRLF, comments, BOM, no final newline); dry run and `-WhatIf` write nothing; unknown names, paths, `base` and `dmf` refused with nothing written; backups taken, kept out of `BackupRoot` and pruned by `-KeepBackups`; the disabled list; and a disabled mod staying disabled through `update -NoApi -Apply`. |
 | `tests/Profiles.Tests.ps1` | The `profile` verb: save (no overwrite without `-Force`, never inside staging), list and show, invalid names refused, a switch dry run that leaves staging, game and profiles byte-identical, refusals (missing mod, path entries, game running, wrong game folder, a `GamePath` deploy would reject as a drive root or too shallow) that write nothing, load-order backup and `-KeepBackups` pruning, success and failure reported correctly whatever `$LASTEXITCODE` says, undo by backup name, a real deploy reaching the game, the already-active switch as a no-op deploy, and `delete` needing `-Apply`. |
+| `tests/SupportBundle.Tests.ps1` | The `support` bundle: dry run writes nothing; the zip holds the expected entries and no `.mod`/`.lua`; a planted key, user name, profile path and Steam id appear in no entry; a user `alpha` leaves `alpha_mod` intact; logs redacted before they are cut; no overwrite without `-Force`; never inside the game or staging folder; works with no console log and no config. |
 
 ---
 
@@ -1332,6 +1334,7 @@ goes into `$Include` in the same commit that wires it into the dispatcher.
 | `Set-ModState.ps1` | The `enable` / `disable` verbs: switches a mod on or off in the staging `mod_load_order.txt`, with a backup. |
 | `Test-DownloadedMods.ps1` | The `intake` verb: what each archive in `DownloadDir` is and what is still to download. No key, no network, no writes. |
 | `Switch-DarktideProfile.ps1` | The `profile` verb: named variants of the staging load order, switched with a backup and a deploy. |
+| `New-SupportBundle.ps1` | The `support` verb: a redacted zip of versions, mod lists, load order and log tails for a bug report. |
 | `Test-Modpack.ps1` | Repository validator, used by CI. |
 | `Invoke-Tests.ps1` | Runs the Pester suite, then the validator. |
 | `tests/` | Pester tests. Sandboxed — no game, no key, no network. |
@@ -1384,6 +1387,51 @@ any. All of them are gitignored; logs older than 30 days are pruned automaticall
 
 Runs 153 sandboxed tests plus the repository validator. It touches nothing real — see
 [Testing](#testing).
+
+---
+
+## Reporting a problem
+
+```powershell
+.\darktide.ps1 support            # list what would go in, and the sizes
+.\darktide.ps1 support -Apply     # write darktide-support-<stamp>.zip
+```
+
+Attach the zip to the issue. It is written to a `support\` folder beside your staging
+folder (or beside these scripts when there is no `config.json`); `-OutFile` puts it
+somewhere else, and `-Force` overwrites an existing one. It is never written inside the
+game folder or the staging folder.
+
+Every file inside is plain text:
+
+| Entry | What it is |
+|---|---|
+| `environment.txt` | Tool commit, PowerShell and OS version, whether `NEXUS_API_KEY` is set (never its value), whether the game is running. |
+| `config.redacted.json` | Your `config.json` with any key named like `key`, `token`, `secret` or `password` dropped. |
+| `staging-listing.txt`, `game-listing.txt` | Mod folder names and versions on each side, plus the loader markers. Names only, no file content. |
+| `staging/mod_load_order.txt`, `game/mod_load_order.txt` | The load order on each side. |
+| `loader-state.json` | What the loader installer recorded. |
+| `darktide-modpack.lock.json` | The manifest. |
+| `logs/`, `console/` | The last 300 lines of the newest `update-*.log` and of the newest Darktide console log. |
+
+What it leaves out on purpose: mod files, archives and bundle data, the API key, and the
+value of any environment variable. Before anything is cut to length, `C:\Users\<name>`
+becomes `%USERPROFILE%`, your user name becomes `<user>` (whole words only, so a user
+`alpha` leaves `alpha_mod` alone), Steam ids become `<steamid>` and email addresses
+become `<email>`.
+
+Redaction is pattern-based, so open the zip and read it before you post it. A mod can
+print anything to the console log. To redact another name as well, such as your Steam
+display name, run the script directly:
+
+```powershell
+.\New-SupportBundle.ps1 -Apply -RedactName 'MyPlayerName'
+```
+
+The console log folder defaults to `%APPDATA%\Fatshark\Darktide\console_logs`. That path
+is a best guess this repository cannot verify against a real install; if it does not exist
+the bundle says so and carries on. Point `-LogDir` at the right folder if yours is
+elsewhere.
 
 ---
 

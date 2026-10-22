@@ -46,6 +46,7 @@
         .\darktide.ps1 profile    save, list, show, switch or delete a named load order
         .\darktide.ps1 need -Path their.lock.json
                                   what you lack from a friend's lockfile, with links
+        .\darktide.ps1 support    one redacted zip to attach to a bug report
 
     Everything is a dry run until you add -Apply, except 'status', 'check',
     'links', 'patchcheck', 'diff', 'intake' and 'need' which never write
@@ -228,13 +229,18 @@
     .\darktide.ps1 need -Path .\their-loadout.lock.json -OutFile need.md
     Compare a friend's lockfile with your staging: what you are missing, with a
     Nexus link for each, and where it goes in their load order. Writes only need.md.
+
+.EXAMPLE
+    .\darktide.ps1 support -Apply
+    Writes a redacted darktide-support-<stamp>.zip to attach to a bug report.
+    Without -Apply it lists what would go in. Works without a config.json.
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
     [ValidateSet('init', 'status', 'check', 'links', 'update', 'deploy', 'sync', 'rollback', 'restore',
-                 'lock', 'loader', 'export', 'import', 'help', 'upgrade', 'patchcheck', 'diff', 'errors', 'settings', 'changes', 'enable', 'disable', 'pin', 'intake', 'profile', 'need')]
+                 'lock', 'loader', 'export', 'import', 'help', 'upgrade', 'patchcheck', 'diff', 'errors', 'settings', 'changes', 'enable', 'disable', 'pin', 'intake', 'profile', 'need', 'support')]
     [string]   $Verb = 'help',
 
     [switch]   $Apply,
@@ -296,8 +302,9 @@ $Pinner   = Join-Path $PSScriptRoot 'Set-ModPin.ps1'
 $Intaker  = Join-Path $PSScriptRoot 'Test-DownloadedMods.ps1'
 $Profiler = Join-Path $PSScriptRoot 'Switch-DarktideProfile.ps1'
 $Gapper   = Join-Path $PSScriptRoot 'Get-LoadoutGap.ps1'
+$Supporter = Join-Path $PSScriptRoot 'New-SupportBundle.ps1'
 
-foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Upgrader, $BuildState, $Differ, $Blamer, $SettingsBackup, $Changer, $Toggler, $Pinner, $Intaker, $Profiler, $Gapper)) {
+foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Upgrader, $BuildState, $Differ, $Blamer, $SettingsBackup, $Changer, $Toggler, $Pinner, $Intaker, $Profiler, $Gapper, $Supporter)) {
     if (-not (Test-Path -LiteralPath $s)) { throw "Missing script: $s" }
 }
 
@@ -336,6 +343,14 @@ if ($Verb -eq 'diff') {
     & $Differ -Left $Left -Right $Right -ConfigPath $ConfigPath -OutFile $OutFile -Force:$Force
     $code = if (Test-Path Variable:LASTEXITCODE) { $LASTEXITCODE } else { 0 }
     exit $code
+}
+
+# 'support' is for when something is wrong, and a missing or broken config.json is
+# one of the things that can be wrong. The script notes its absence and carries on.
+if ($Verb -eq 'support') {
+    Write-Head "Building a support bundle$(if (-not $Apply) { ' (dry run)' })"
+    & $Supporter -ConfigPath $ConfigPath -OutFile $OutFile -Apply:$Apply -Force:$Force -Confirm:$false
+    return
 }
 
 # SyncIdsFromMap only touches the lockfile and mods-map.json - no config, no ModsRoot.
