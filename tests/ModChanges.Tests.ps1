@@ -139,7 +139,10 @@ BeforeAll {
 
     function Get-ModRow {
         param($Report, [string] $Mod)
-        return @($Report.mods | Where-Object { $_.mod -eq $Mod })
+        # The comma keeps a one-row result an array. Without it the pipeline
+        # unrolls it to a bare object, and Windows PowerShell 5.1 under strict
+        # mode has no .Count on a PSCustomObject.
+        return ,@($Report.mods | Where-Object { $_.mod -eq $Mod })
     }
 }
 
