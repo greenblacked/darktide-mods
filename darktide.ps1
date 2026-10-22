@@ -369,7 +369,12 @@ switch ($Verb) {
             throw "Which lockfile? Pass -Path, e.g. .\darktide.ps1 need -Path '.\their-loadout.lock.json'"
         }
         Write-Head 'Comparing their lockfile with your staging'
+        # Reset first: the script only sets an exit code when something was dropped,
+        # so a code left by an earlier command would otherwise be passed on as this
+        # verb's result.
+        $global:LASTEXITCODE = 0
         & $Gapper -Path $Path -ModsRoot $modsRoot -ConfigPath $ConfigPath -OutFile $OutFile -Force:$Force
+        if ($LASTEXITCODE) { exit $LASTEXITCODE }
         return
     }
 }

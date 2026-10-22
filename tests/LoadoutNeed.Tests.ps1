@@ -472,6 +472,33 @@ Describe 'darktide.ps1 need and lock -OutFile' {
         { & $script:Dispatcher need -ConfigPath $script:Config *>&1 | Out-Null } | Should -Throw '*-Path*'
     }
 
+    It 'need exits 1 when anything was dropped from their lockfile' {
+        $f = New-FriendLock -Root $script:Root -Mods @(
+            (New-Mod -Folder '..\evil'   -ModId 1),
+            (New-Mod -Folder 'alpha_mod' -ModId 447 -Version '1.0.0')
+        )
+
+        $global:LASTEXITCODE = 0
+        & $script:Dispatcher need -ConfigPath $script:Config -Path $f *>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 1
+
+        # In-process, the child's exit code leaks through even when the dispatcher
+        # drops it. Only a separate process shows what a caller of
+        # 'darktide.ps1 need' actually gets back. Same engine as this run.
+        $engine = (Get-Process -Id $PID).Path
+        & $engine -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script:Dispatcher `
+            need -ConfigPath $script:Config -Path $f | Out-Null
+        $LASTEXITCODE | Should -Be 1
+    }
+
+    It 'need exits 0 on a clean run even when an earlier command left a failure code behind' {
+        $f = New-FriendLock -Root $script:Root -Mods @((New-Mod -Folder 'alpha_mod' -ModId 447 -Version '1.0.0'))
+
+        $global:LASTEXITCODE = 7
+        & $script:Dispatcher need -ConfigPath $script:Config -Path $f *>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 0
+    }
+
     It 'lock -OutFile writes the given path and leaves the repository lockfile byte-identical' {
         $share = Join-Path $script:Root 'my-loadout.lock.json'
         $repoBefore = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($script:RepoLock))
