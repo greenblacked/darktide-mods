@@ -186,6 +186,12 @@ Renamed a file? The version inside the archive's `info.json` is used instead. If
 available the archive is reported as `VERSION-UNKNOWN` and skipped rather than guessed at —
 install it with `-Force -Only <folder>` if you're sure.
 
+Only `.zip` archives are installed. A mod that Nexus serves as `.7z` or `.rar` is skipped by
+`update` without a message, so extract it and re-zip it, or install it by hand.
+
+Then run `.\darktide.ps1 intake` to see what you have before applying anything — see
+[Before update -Apply: intake](#before-update--apply-intake).
+
 ### 2. Close the game
 
 `-Apply` refuses to write while `Darktide.exe` is open, since replacing a loaded mod file
@@ -309,6 +315,7 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 | `disable` | Switch a mod off in the staging load order without deleting it (`-Only`). With no `-Only`, lists what is switched off. Dry run until `-Apply`. |
 | `enable` | Switch a disabled mod back on (`-Only`). Dry run until `-Apply`. |
 | `pin` | Hold mods at their current version so `update` leaves them alone, `-Force` included. Lists pins on its own; `-Only` pins, `-Unpin` releases. Dry run until `-Apply`. See [Holding a mod back](#holding-a-mod-back). |
+| `intake` | Classify every archive in your download folder against staging and the lockfile, and list what is still to download. Run it before `update -Apply`. Read-only; exits `1` on an `ID-MISMATCH`. |
 
 ### Useful switches
 
@@ -342,6 +349,7 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 .\darktide.ps1 enable -Only scoreboard -Apply              # ...and back on
 .\darktide.ps1 pin -Only NumericUI -Reason 'crashes on 1.4' -Apply   # hold one mod back
 .\darktide.ps1 pin -Only NumericUI -Unpin -Apply              # ...and let it update again
+.\darktide.ps1 intake -OutFile intake.json -Force          # what is in DownloadDir, as JSON
 ```
 
 ---
@@ -541,6 +549,30 @@ that folder's `.nexus-mod.json` (created the first time this tool installed the 
 | `NO-ARCHIVE` | That folder has no matching zip in `DownloadDir`. Not an error. |
 | `VERSION-UNKNOWN` | Renamed zip and no `info.json`. Skipped. |
 | `PINNED` | Held with `pin`. Never installed, even with `-Force`; the Action column has the command that releases it. |
+
+#### Before update -Apply: intake
+
+Run `intake` after downloading and before `update -Apply`. It reads every archive in
+`DownloadDir` without extracting it, compares it with staging and the lockfile, and lists
+the lockfile mods that are still neither staged nor downloaded, with their Nexus pages.
+It writes nothing, needs no key and no network.
+
+```powershell
+.\darktide.ps1 intake
+.\darktide.ps1 intake -OutFile intake.md      # keep it as markdown (.json also works)
+```
+
+| Status | Meaning |
+|---|---|
+| `UPGRADE` | Newer than staging. `update -Apply` installs it. |
+| `SAME` / `OLDER` | Already staged, or older than staging. `update` skips it. |
+| `NEW-IN-LOCK` | In the lockfile but not staged yet. `update -Apply` installs it. |
+| `NOT-IN-LOCK` | A mod that is neither staged nor in the lockfile. `update -Apply` would add it as a new mod. Delete the zip if you did not mean that. |
+| `ID-MISMATCH` | The Nexus id in the filename is not the id recorded for that folder in staging or the lockfile: a different mod that uses the same folder name. `update` matches on the folder alone and would install it over yours. `intake` exits `1` when it finds one. |
+| `NOT-DMF` | No `.mod` file inside. `update` ignores it. |
+| `UNSUPPORTED-FORMAT` | `.7z` or `.rar`. `update` ignores these without saying so. |
+| `VERSION-UNKNOWN` | Renamed zip and no `info.json`. `update` skips it without `-Force`. |
+| `SUPERSEDED` | Another zip for the same mod wins, because it is newer or the same version downloaded twice. Safe to delete, unless the winning zip carries a different Nexus id (an `ID-MISMATCH`); then keep it. |
 
 A first run often shows `version-tracked: 0` in `status`. Nothing has been installed *by
 this tool* yet, so there is no recorded version to compare. The first `update -Apply`
@@ -1092,6 +1124,7 @@ What it covers:
 | `tests/OpenPages.Tests.ps1` | `links -Open` against a mocked `Start-Process`: exactly the selected pages open, built from the id; a mod with no id is `no page`; nothing opens without `-Open` or over `-OpenLimit`; a shared id opens once; with `-CheckGitHub` only `differs` opens; a hostile lockfile `url`, `modId` or `game` never reaches `Start-Process`; nothing is written. Holds up off Windows. |
 | `tests/PinHolds.Tests.ps1` | `pin` and the updater honouring it: pin/unpin round trip back to the original bytes (on the shipped `mods-map.json` too), other keys and entry order kept, dry run writes nothing, `.bak` written, unknown folders and a broken map refused; a pinned mod with a newer zip is left untouched with no backup, with and without `-Force`; a pinned folder that is not installed is not installed; `PINNED` in the CSV and the JSON report, offline and (mocked) online. |
 | `tests/Attribution.Tests.ps1` | The validator's attribution checks actually fire — proven by feeding them content that must fail, so a check cannot rot into a no-op unnoticed. |
+| `tests/DownloadsIntake.Tests.ps1` | The `intake` verb: upgrade, same, older, unlocked, mismatched-id, not-DMF, `.7z`, renamed and duplicate archives each get the right status; the missing list carries Nexus pages; `-Only` / `-Skip`; exit `1` only on an id mismatch, also through `darktide.ps1`; `-OutFile` as JSON and markdown, no overwrite without `-Force`, never into staging; downloads and staging unchanged. |
 | `tests/Package.Tests.ps1` | The release package: only allow-listed files, no mod content or config, the archive builds and its manifest matches `-ListOnly`. |
 | `tests/PatchCheck.Tests.ps1` | `patchcheck` against a fake game and Steam manifest: no baseline, in sync by matching fingerprint (uppercase hash), database replaced, Steam update pending, no manifest, missing loader files, the timestamp fallback, `-Remember` writing only the baseline beside staging, the game folder left untouched, `PREDATES-PATCH` / `OK` / `PINNED` / `UNKNOWN` classification, `-OutFile`, and exit codes through the dispatcher. |
 | `tests/AllowlistCheck.Tests.ps1` | The validator's allow-list coverage check, run against a copy of the repository: it passes on the real layout, fails and names the script when a root script or a dispatcher reference is missing from `$Include`, accepts a script on its dev-only list, and fails rather than passing when it can no longer find the dispatcher's references. Runs on any OS. |
@@ -1181,6 +1214,7 @@ goes into `$Include` in the same commit that wires it into the dispatcher.
 | `Backup-DarktideSettings.ps1` | The `settings` verb: backs up and restores `user_settings.config`, where your mod settings live. |
 | `Show-ModChanges.ps1` | The `changes` verb: what the last `update -Apply` changed, per mod, read from its backup set. No writes beyond `-OutFile`. |
 | `Set-ModState.ps1` | The `enable` / `disable` verbs: switches a mod on or off in the staging `mod_load_order.txt`, with a backup. |
+| `Test-DownloadedMods.ps1` | The `intake` verb: what each archive in `DownloadDir` is and what is still to download. No key, no network, no writes. |
 | `Test-Modpack.ps1` | Repository validator, used by CI. |
 | `Invoke-Tests.ps1` | Runs the Pester suite, then the validator. |
 | `tests/` | Pester tests. Sandboxed — no game, no key, no network. |
@@ -1203,6 +1237,7 @@ goes into `$Include` in the same commit that wires it into the dispatcher.
 | `Nothing to do. Download mod archives...` | No `.zip` files in `DownloadDir`. Check the path in `config.json` and that your browser didn't save `.zip.crdownload`. |
 | Archive shows as `VERSION-UNKNOWN` | The filename was changed and the zip has no `info.json`. Install it deliberately: `.\darktide.ps1 update -Apply -Force -Only <folder>`. |
 | Archive shows as `NO-ARCHIVE` | That mod has no matching zip in `DownloadDir` — nothing is wrong, there's just nothing to install for it. |
+| A `.7z` or `.rar` download never installs | `update` only reads `.zip` and skips the rest without a message. `intake` lists them as `UNSUPPORTED-FORMAT`. Extract and re-zip, or install by hand. |
 | `Skipping '<file>': no *.mod file inside` | Not a DMF mod archive (a texture pack, a readme bundle, or a nested zip). Ignored on purpose. |
 | Deploy says `Already in sync` when you expected work | Staging really does match the game folder. If you edited the game folder directly, that edit is what `-Mirror` or `-Force` is for. |
 | Game crashes on load after an update | `.\darktide.ps1 restore -Apply`, then bisect: `.\darktide.ps1 disable -Only <half the mods> -Apply`, `deploy -Apply` and restart. See [After a Darktide patch](#after-a-darktide-patch). |

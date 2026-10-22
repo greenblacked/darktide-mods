@@ -39,13 +39,15 @@
                                   what is switched off when -Only is left out
         .\darktide.ps1 enable     switch a disabled mod back on (-Only)
         .\darktide.ps1 pin        list held mods; with -Only, hold them at their version
+        .\darktide.ps1 intake     classify the archives in your download folder
+                                  and list what is still to download
 
     Everything is a dry run until you add -Apply, except 'status', 'check',
-    'links', 'patchcheck' and 'diff' which never write anything (patchcheck
-    -Remember stores a baseline beside staging), 'lock' which always writes the
-    manifest, and 'upgrade', which shows its plan and asks before it writes
-    (answering no writes nothing). The dry-run default includes rollback and
-    restore.
+    'links', 'patchcheck', 'diff' and 'intake' which never write anything
+    (patchcheck -Remember stores a baseline beside staging), 'lock' which always
+    writes the manifest, and 'upgrade', which shows its plan and asks before it
+    writes (answering no writes nothing). The dry-run default includes rollback
+    and restore.
 
     'enable' and 'disable' edit only the staging mod_load_order.txt. Run
     'deploy -Apply' afterwards to make the change live.
@@ -191,13 +193,19 @@
     .\darktide.ps1 pin -Only NumericUI -Reason 'crashes on 1.4' -Apply
     Hold NumericUI at its installed version. update reports it as PINNED and leaves
     it alone, -Force included, until: .\darktide.ps1 pin -Only NumericUI -Unpin -Apply
+
+.EXAMPLE
+    .\darktide.ps1 intake
+    Run after downloading, before update -Apply: what each archive in the download
+    folder is, and which lockfile mods are still missing. Exits 1 if an archive
+    carries a different Nexus id from the mod it would replace.
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
     [ValidateSet('init', 'status', 'check', 'links', 'update', 'deploy', 'sync', 'rollback', 'restore',
-                 'lock', 'loader', 'export', 'import', 'help', 'upgrade', 'patchcheck', 'diff', 'errors', 'settings', 'changes', 'enable', 'disable', 'pin')]
+                 'lock', 'loader', 'export', 'import', 'help', 'upgrade', 'patchcheck', 'diff', 'errors', 'settings', 'changes', 'enable', 'disable', 'pin', 'intake')]
     [string]   $Verb = 'help',
 
     [switch]   $Apply,
@@ -254,8 +262,9 @@ $SettingsBackup = Join-Path $PSScriptRoot 'Backup-DarktideSettings.ps1'
 $Changer  = Join-Path $PSScriptRoot 'Show-ModChanges.ps1'
 $Toggler  = Join-Path $PSScriptRoot 'Set-ModState.ps1'
 $Pinner   = Join-Path $PSScriptRoot 'Set-ModPin.ps1'
+$Intaker  = Join-Path $PSScriptRoot 'Test-DownloadedMods.ps1'
 
-foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Upgrader, $BuildState, $Differ, $Blamer, $SettingsBackup, $Changer, $Toggler, $Pinner)) {
+foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Upgrader, $BuildState, $Differ, $Blamer, $SettingsBackup, $Changer, $Toggler, $Pinner, $Intaker)) {
     if (-not (Test-Path -LiteralPath $s)) { throw "Missing script: $s" }
 }
 
@@ -599,5 +608,14 @@ switch ($Verb) {
         }
         & $Toggler disable -ConfigPath $ConfigPath -Only $Only -Apply:$Apply -Confirm:$false
         return
+    }
+
+    'intake' {
+        # Read-only, so no dry-run suffix and no -Apply. The exit code is the point:
+        # 1 means an archive would replace a mod with a different Nexus mod.
+        Write-Head 'Checking the download folder before update -Apply'
+        & $Intaker -ConfigPath $ConfigPath -Only $Only -Skip $Skip -OutFile $OutFile -Force:$Force
+        $code = if (Test-Path Variable:LASTEXITCODE) { $LASTEXITCODE } else { 0 }
+        exit $code
     }
 }
