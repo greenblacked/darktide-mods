@@ -144,7 +144,11 @@ if ($Verb -eq 'help') {
 # someone with no API key is exactly the person least likely to have finished setup.
 if ($Verb -eq 'links') {
     Write-Head 'Where to check for updates'
+    # Reset first: the finder only sets an exit code when it fails, so a code left by
+    # an earlier command would otherwise be passed on as this verb's result.
+    $global:LASTEXITCODE = 0
     & $Finder -CheckGitHub:$CheckGitHub -Only $Only -Skip $Skip -OutFile $OutFile -Open:$Open
+    if ($LASTEXITCODE) { exit $LASTEXITCODE }
     return
 }
 

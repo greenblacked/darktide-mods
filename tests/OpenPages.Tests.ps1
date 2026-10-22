@@ -422,6 +422,21 @@ Describe 'darktide.ps1 links -Open' {
         Get-TreeFingerprint -Path $script:Root | Should -Be $before
     }
 
+    It 'exits 1 when more pages than the limit are selected, and opens none' {
+        $null = New-OpenFixture -Root $script:Root -Mods (Get-ModEntryList -Count 11) `
+            -LockName 'darktide-modpack.lock.json' -MapName 'mods-map.json'
+        $global:LASTEXITCODE = 0
+        & $script:SandboxDispatcher links -Open *>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 1
+        Should -Invoke Start-Process -Times 0 -Exactly
+    }
+
+    It 'exits 0 on success even when an earlier command left a failure code behind' {
+        $global:LASTEXITCODE = 7
+        & $script:SandboxDispatcher links -Open -Only beta_mod *>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 0
+    }
+
     It 'needs no config.json' {
         Test-Path -LiteralPath (Join-Path $script:Root 'config.json') | Should -BeFalse
 
