@@ -304,6 +304,7 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 | `patchcheck` | After a game patch: whether Steam replaced the patched bundle database, which loader files are missing, and what to run next. Exits `1` when something needs doing. Read-only; `-Remember` stores a baseline beside staging. |
 | `diff` | How two loadouts differ: mods added or removed, version changes, mods changed in place, load-order moves. Each side is a lockfile, an export zip, `git:<rev>` or `current`; plain `diff` compares staging with the committed lockfile. Read-only. See [Comparing two loadouts](#comparing-two-loadouts). |
 | `errors` | Read the game's newest console log and name the mod most likely behind its errors. Works without `config.json` given `-LogDir`. Read-only. |
+| `settings` | Back up your mod settings file (`user_settings.config`), or restore one with `-BackupSet`. Dry run until `-Apply`. Needs no config. |
 
 ### Useful switches
 
@@ -331,6 +332,8 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 .\darktide.ps1 errors -LogDir 'D:\from-a-friend\logs'      # someone else's logs, no config needed
 .\darktide.ps1 links -Open -Only markers_aio,scoreboard     # open those Nexus pages in the browser
 .\darktide.ps1 links -CheckGitHub -Open                     # open only the pages whose GitHub release differs
+.\darktide.ps1 settings -Apply                             # back up your mod settings
+.\darktide.ps1 settings -BackupSet 20261022 -Apply         # restore a settings backup
 ```
 
 ---
@@ -733,7 +736,52 @@ The order matters:
 ```
 
 Your mod **settings survive all of this** — DMF stores them in `%APPDATA%\Fatshark\Darktide\`,
-not in the mod folders.
+not in the mod folders. Nothing above backs them up, though; see the next section.
+
+---
+
+## Back up your mod settings
+
+The options you set in the mod menu (keybinds, toggles, colours) are saved in the game's settings file,
+`%APPDATA%\Fatshark\Darktide\user_settings.config`. It lives outside staging and the game
+folder, so `deploy`, `update`, `export` and the loader never touch it, and none of their
+backups include it. If a mod update resets its options, or you switch mod profiles and want
+your old options back, that file is the thing to restore.
+
+Take a copy before anything that might go wrong:
+
+- before a big update (`sync -Apply` after a Darktide patch, or updating DMF);
+- before switching mod profiles;
+- once you have the mod menu set up the way you like it.
+
+```powershell
+.\darktide.ps1 settings                      # show the file and your backups, newest first
+.\darktide.ps1 settings -Apply               # take a backup
+.\darktide.ps1 settings -BackupSet 20261022  # what restoring that backup would change
+.\darktide.ps1 settings -BackupSet 20261022 -Apply
+```
+
+- Backups go to `settings_backups\user_settings-<timestamp>.config` beside your staging
+  folder (the parent of `ModsRoot`, next to `mod_backups\`). Set `SettingsBackupDir` in
+  `config.json` to put them elsewhere; with no `config.json` they go to
+  `%LOCALAPPDATA%\darktide-mods\settings_backups\`. It refuses a folder inside this
+  repository, staging or the game folder.
+- A backup is skipped, and says so, when the file is byte-identical to the newest one.
+  Two backups in the same second are numbered (`-1`, `-2`) rather than overwriting each
+  other. The newest 10 are kept (`-KeepBackups` on the script).
+- A restore refuses to run while the game is open: Darktide rewrites this file when it
+  exits, which would undo the restore. It copies the current file to a
+  `...-prerestore.config` backup first, so a restore can itself be undone, unless the
+  current file is identical to the newest backup and so already saved. A `-BackupSet`
+  that matches more than one backup is refused; pass more of the name.
+- The file is copied byte for byte and compared by hash. It is never parsed or merged.
+
+The location above is where the file is documented to live; this repository cannot verify
+it. If yours is somewhere else, set `SettingsPath` in `config.json`, or run the script
+directly: `.\Backup-DarktideSettings.ps1 -SettingsPath 'D:\path\user_settings.config' -Apply`.
+
+The file is personal. `.gitignore` excludes `user_settings*.config` and `settings_backups/`,
+and the release package never includes either.
 
 ### Which mod crashed the game
 
@@ -781,8 +829,9 @@ This tooling deletes and replaces directories, so it is deliberately paranoid:
   new copy is on disk. A corrupt archive can never leave you with a deleted mod.
 - **Backs up before every write** — staging installs to `mod_backups\<timestamp>\`, deploys to
   `deploy_backups\gamemods-<timestamp>.zip`, loader updates and restores to
-  `loader_backups\loader-<timestamp>\`, re-patches to `loader_backups\bundledb-<timestamp>.data`. Retention is
-  capped (default 10) so repeated runs cannot fill the disk.
+  `loader_backups\loader-<timestamp>\`, re-patches to `loader_backups\bundledb-<timestamp>.data`,
+  settings restores to `settings_backups\`. Retention is capped (default 10) so repeated
+  runs cannot fill the disk.
 - **Archive contents decide the target folder**, taken from the `*.mod` file inside. If that
   doesn't match the mod being updated, the install is refused rather than guessed at.
 - **Zip-slip guarded** — `../`, absolute paths, and backslash traversal are rejected, and every
@@ -938,6 +987,7 @@ What it covers:
 | `tests/AllowlistCheck.Tests.ps1` | The validator's allow-list coverage check, run against a copy of the repository: it passes on the real layout, fails and names the script when a root script or a dispatcher reference is missing from `$Include`, accepts a script on its dev-only list, and fails rather than passing when it can no longer find the dispatcher's references. Runs on any OS. |
 | `tests/LoadoutDiff.Tests.ps1` | `diff`: added, removed, version bumps, changes in place, a null version reported as *now known* rather than changed, one insertion not flagging later entries as moved, identical inputs giving exit `0` and empty lists under stable keys, reading an export zip without extracting it, malformed, oversized and wrong-schema input refused, `current` against a fake staging folder with the repository lockfile left byte-identical, and `git:` revisions (skipped, not passed, where git is missing). |
 | `tests/ErrorBlame.Tests.ps1` | The `errors` verb against synthetic console logs: ranking and counts, a path fragment, a DMF tag carrying the display name, a folder name with brackets, DMF not blamed for a hook, newest log by write time, `-Last`, tail-only reading, a missing folder, an empty log, the no-mod-lines hint, redaction of the profile path and user name (before truncation), the 200-character cut, `-OutFile` json/md with `-Force`, and nothing written anywhere else. |
+| `tests/SettingsBackup.Tests.ps1` | The `settings` verb: a byte-identical backup; an unchanged file not backed up twice; same-second backups numbered, not overwritten; retention; dry-run backup and restore write nothing; restore takes a pre-restore backup first; ambiguous or unmatched `-BackupSet` refused; restore refused while the game runs; a missing settings file reported with nothing written; backups refused inside the repo, staging or the game folder. |
 
 ---
 
@@ -1016,6 +1066,7 @@ goes into `$Include` in the same commit that wires it into the dispatcher.
 | `Get-DarktideBuildState.ps1` | The `patchcheck` verb: Steam build state, bundle database fingerprint vs the loader's record, missing loader files, mods installed before the last game update. No writes to the game folder. |
 | `Compare-DarktideLoadout.ps1` | The `diff` verb: compares two loadouts (lockfile, export zip, `git:<rev>` or current staging). Read-only. |
 | `Get-DarktideErrors.ps1` | The `errors` verb: reads the game's console logs and ranks the mods most likely behind their errors. Read-only, redacts your user name and profile path. |
+| `Backup-DarktideSettings.ps1` | The `settings` verb: backs up and restores `user_settings.config`, where your mod settings live. |
 | `Test-Modpack.ps1` | Repository validator, used by CI. |
 | `Invoke-Tests.ps1` | Runs the Pester suite, then the validator. |
 | `tests/` | Pester tests. Sandboxed — no game, no key, no network. |
