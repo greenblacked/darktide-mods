@@ -24,15 +24,18 @@
                        tools\dtkit-patch.exe.
 
     It works before 'init': with no config.json it reports that as a FAIL and still runs
-    every check it has a path for (pass -StagingMods / -GamePath to give it one).
+    every check it has a path for (pass -StagingMods / -GamePath to give it one; the
+    'doctor' verb in darktide.ps1 forwards -GamePath only, so -StagingMods needs this
+    script run directly).
 
     It writes nothing except the -OutFile you ask for, never touches the network, and
     only reads the game folder.
 
-    Two things here are heuristics this repository cannot verify, and are reported as
-    WARN rather than FAIL for that reason: that dmf should come first when it is listed
-    in mod_load_order.txt, and whether the game's bundle database is currently patched
-    (that is the 'patchcheck' verb's job, so this only points you at it).
+    Two things here are heuristics this repository cannot verify. That dmf should come
+    first when it is listed in mod_load_order.txt is reported as WARN rather than FAIL
+    for that reason. Whether the game's bundle database is currently patched is not
+    checked at all: that is the 'patchcheck' verb's job, so an INFO line points you at
+    .\darktide.ps1 patchcheck.
 
 .PARAMETER ConfigPath
     config.json to read. A missing or broken one is reported, not fatal.
@@ -64,7 +67,7 @@
 
 .EXAMPLE
     .\Test-DarktideSetup.ps1 -Quick
-    The same, comparing folder names only. Seconds rather than minutes.
+    The same, comparing folder names only, without hashing mod files.
 
 .EXAMPLE
     .\Test-DarktideSetup.ps1 -OutFile doctor.md

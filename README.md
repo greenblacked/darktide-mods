@@ -289,7 +289,7 @@ exits `1` if anything FAILs and `0` otherwise.
 | Loader | `.darktide-loader.json` and its `patched` flag, `bundle\*.patch_999`, `tools\dtkit-patch.exe`, and `mods\base` in the game. |
 
 `-Quick` skips content hashing: staging, the lockfile and the game are compared by folder
-name only, which takes seconds instead of minutes on a large loadout. `-OutFile` also
+name only, without hashing mod files, so it is faster on a large loadout. `-OutFile` also
 writes the report as `.json` or `.md` (`-Force` to overwrite); nothing else is ever
 written, and it never touches the network.
 
@@ -705,7 +705,7 @@ What it covers:
 | `tests/UpgradeWorkflow.Tests.ps1` | The whole upgrade, in order, through `darktide.ps1`: dry run, `update -Apply` into staging only, `deploy -Apply` to make it live, `lock`, then rollback — including the two properties that look like bugs until you know staging is the source of truth. |
 | `tests/FindUpdates.Tests.ps1` | The `links` list: a page for every mod with an id, a built one where the lockfile has no `url`, `no Nexus id` rather than a guess, `-Only` / `-Skip` / `-OutFile`, a malformed `githubRepo` reported and ignored, `same` vs `differs` (never “newer”), and a mocked GitHub call whose failures stay distinguishable. |
 | `tests/Attribution.Tests.ps1` | The validator's attribution checks actually fire — proven by feeding them content that must fail, so a check cannot rot into a no-op unnoticed. |
-| `tests/Doctor.Tests.ps1` | `doctor` on a healthy sandbox is clean; each broken layout is caught at the right severity: ghost entry, unlisted folder, case/whitespace duplicate, nested extract, mismatched `.mod` name, empty folder, missing `dmf`, a staged file edited after locking, game content drifting from staging. `-Quick` skips hashing, no `config.json` is a FAIL with the `init` hint, `-OutFile` JSON parses, and staging and the game are byte-for-byte unchanged afterwards. |
+| `tests/Doctor.Tests.ps1` | `doctor` on a healthy sandbox is clean; each broken layout is caught at the right severity: ghost entry, unlisted folder, case/whitespace duplicate, nested extract, mismatched `.mod` name, folder with no `.mod`, empty folder, missing `dmf`, a staged file edited after locking, game content drifting from staging, a mod only in the game folder. `-Quick` skips hashing, no `config.json` is a FAIL with the `init` hint, `-OutFile` JSON parses, and every file in staging and the game has the same path, size and timestamp afterwards. |
 | `tests/Package.Tests.ps1` | The release package: only allow-listed files, no mod content or config, the archive builds and its manifest matches `-ListOnly`. |
 
 ---
