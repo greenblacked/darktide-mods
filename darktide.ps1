@@ -8,6 +8,8 @@
         .\darktide.ps1 status     what is installed, staged and deployed
         .\darktide.ps1 check      what is outdated on Nexus (needs an API key)
         .\darktide.ps1 links      where to look for updates with no API key at all
+        .\darktide.ps1 links -Open
+                                  ...and open those Nexus pages in the browser
         .\darktide.ps1 update     install downloaded archives into staging
         .\darktide.ps1 deploy     push staging into the game folder
         .\darktide.ps1 sync       update + deploy; stops if either step fails
@@ -32,6 +34,13 @@
     With 'links': also ask the public GitHub API for the latest release tag of
     any mod that has a `githubRepo` in mods-map.json. Off by default, because
     the rest of 'links' needs no network.
+
+.PARAMETER Open
+    With 'links': after printing the list, open each selected mod's Nexus page in
+    the browser. Pages are built from the lockfile's numeric modId only, never its
+    free-text url. Opens nothing if there are more than 10 pages; narrow with -Only
+    (Find-ModUpdates.ps1 -OpenLimit raises the cap). With -CheckGitHub, only mods
+    whose GitHub release differs are opened.
 
 .PARAMETER SyncIdsFromMap
     With 'lock': copy non-null modId/url values from mods-map.json into the
@@ -64,6 +73,10 @@
     .\darktide.ps1 links
     Every mod and its Nexus page, so checking by hand is a list of links. No key,
     no network.
+
+.EXAMPLE
+    .\darktide.ps1 links -Open -Only markers_aio,scoreboard
+    The same list, then those two mods' Nexus pages open in the browser.
 #>
 
 [CmdletBinding()]
@@ -88,6 +101,7 @@ param(
     [string]   $Source,
     [string]   $GamePath,
     [switch]   $Deploy,
+    [switch]   $Open,
     [string]   $ConfigPath = (Join-Path $PSScriptRoot 'config.json')
 )
 
@@ -130,7 +144,7 @@ if ($Verb -eq 'help') {
 # someone with no API key is exactly the person least likely to have finished setup.
 if ($Verb -eq 'links') {
     Write-Head 'Where to check for updates'
-    & $Finder -CheckGitHub:$CheckGitHub -Only $Only -Skip $Skip -OutFile $OutFile
+    & $Finder -CheckGitHub:$CheckGitHub -Only $Only -Skip $Skip -OutFile $OutFile -Open:$Open
     return
 }
 
