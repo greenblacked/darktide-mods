@@ -262,7 +262,10 @@ function Get-JsonFile {
 function Get-PropertyValue {
     param($Object, [string] $Name)
     if ($null -eq $Object) { return $null }
-    if ($Object.PSObject.Properties.Name -contains $Name) { return $Object.$Name }
+    # Index the property collection: it returns null for a missing member, and
+    # unlike .Properties.Name it does not throw under StrictMode on an empty {}.
+    $p = $Object.PSObject.Properties[$Name]
+    if ($null -ne $p) { return $p.Value }
     return $null
 }
 

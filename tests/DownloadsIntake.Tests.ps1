@@ -252,6 +252,16 @@ Describe 'Test-DownloadedMods (intake)' {
             $r.status | Should -Be 'UPGRADE'
             $r.note   | Should -Match 'pinned'
         }
+
+        It 'tolerates side files that are valid but empty JSON' {
+            Remove-Item -LiteralPath (Join-Path $script:Downloads 'Impostor-999-3-0-0-1719209900.zip') -Force
+            Set-Content -LiteralPath (Join-Path (Join-Path $script:Staging 'alpha_mod') 'info.json') -Value '{}' -Encoding ASCII
+            Set-Content -LiteralPath (Join-Path (Join-Path $script:Staging 'delta_mod') '.nexus-mod.json') -Value '{}' -Encoding ASCII
+            Set-Content -LiteralPath $script:Map -Value '{ "alpha_mod": {} }' -Encoding ASCII
+            $res = Get-IntakeJson
+            $res.Code | Should -Be 0
+            (Get-Row $res.Doc 'Alpha Mod-447-2-0-0-1719209900.zip').mod | Should -Be 'alpha_mod'
+        }
     }
 
     Context 'read-only' {
