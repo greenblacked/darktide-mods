@@ -26,12 +26,14 @@
         .\darktide.ps1 import     restore a loadout zip and deploy it
         .\darktide.ps1 upgrade    the everyday loop: plan, ask once, then update +
                                   deploy + lockfile, with the undo commands at the end
+        .\darktide.ps1 patchcheck after a game patch: is the loader patch still in
+                                  place, and what to run next
 
-    Everything is a dry run until you add -Apply, except 'status', 'check' and
-    'links' which never write anything, 'lock' which always writes the
-    manifest, and 'upgrade', which shows its plan and asks before it writes
-    (answering no writes nothing). The dry-run default includes rollback and
-    restore.
+    Everything is a dry run until you add -Apply, except 'status', 'check',
+    'links' and 'patchcheck' which never write anything (patchcheck -Remember
+    stores a baseline beside staging), 'lock' which always writes the manifest,
+    and 'upgrade', which shows its plan and asks before it writes (answering no
+    writes nothing). The dry-run default includes rollback and restore.
 
 .PARAMETER Verb
     Which action to run. See above.
@@ -62,6 +64,11 @@
 .PARAMETER RestoreBackup
     With 'loader': put a previous loader back from loader_backups. The dry run lists
     the backups; -BackupSet picks one by part of its name, otherwise the newest.
+
+.PARAMETER Remember
+    With 'patchcheck': store the current game build and bundle database
+    fingerprint as the baseline the next check compares against. The file goes
+    beside the staging folder, never into the game folder.
 
 .EXAMPLE
     .\darktide.ps1 sync
@@ -96,13 +103,18 @@
     .\darktide.ps1 upgrade
     Show what update and deploy would do as one plan, ask once, then apply it and
     print the backup names and the commands that undo it.
+
+.EXAMPLE
+    .\darktide.ps1 patchcheck
+    After a Fatshark patch: was the game updated since the loader was patched,
+    and what to run next. Exits 1 when something needs doing. Writes nothing.
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
     [ValidateSet('init', 'status', 'check', 'links', 'update', 'deploy', 'sync', 'rollback', 'restore',
-                 'lock', 'loader', 'export', 'import', 'help', 'upgrade')]
+                 'lock', 'loader', 'export', 'import', 'help', 'upgrade', 'patchcheck')]
     [string]   $Verb = 'help',
 
     [switch]   $Apply,
@@ -123,6 +135,7 @@ param(
     [switch]   $Yes,
     [switch]   $PatchOnly,
     [switch]   $RestoreBackup,
+    [switch]   $Remember,
     [string]   $ConfigPath = (Join-Path $PSScriptRoot 'config.json')
 )
 
@@ -143,8 +156,9 @@ $Initer   = Join-Path $PSScriptRoot 'Initialize-DarktideConfig.ps1'
 $Loaderer = Join-Path $PSScriptRoot 'Install-DarktideLoader.ps1'
 $Finder   = Join-Path $PSScriptRoot 'Find-ModUpdates.ps1'
 $Upgrader = Join-Path $PSScriptRoot 'Invoke-DarktideUpgrade.ps1'
+$BuildState = Join-Path $PSScriptRoot 'Get-DarktideBuildState.ps1'
 
-foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Upgrader)) {
+foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Upgrader, $BuildState)) {
     if (-not (Test-Path -LiteralPath $s)) { throw "Missing script: $s" }
 }
 
@@ -399,6 +413,17 @@ switch ($Verb) {
         # The script always ends with an explicit exit code; pass a failure on.
         $code = if (Test-Path Variable:LASTEXITCODE) { $LASTEXITCODE } else { 0 }
         if ($code -ne 0) { exit 1 }
+        return
+    }
+
+    'patchcheck' {
+        # Read-only apart from -Remember (a baseline beside staging) and -OutFile.
+        Write-Head 'Game build vs the mod loader patch'
+        & $BuildState -ConfigPath $ConfigPath -GamePath $GamePath -Remember:$Remember `
+                      -OutFile $OutFile -Force:$Force
+        # Passed on so a script can branch: 1 means something needs doing.
+        $code = if (Test-Path Variable:LASTEXITCODE) { $LASTEXITCODE } else { 0 }
+        if ($code) { exit $code }
         return
     }
 }
