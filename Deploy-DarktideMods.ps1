@@ -560,6 +560,8 @@ if (-not (Test-Path -LiteralPath $toggle)) {
 }
 
 Write-Host ''
+# 'darktide.ps1 sync' treats this exact line as the success signal, because after a
+# good deploy $LASTEXITCODE still holds robocopy's 1. Keep the wording.
 if ($ok) {
     Write-Ok 'Deploy OK.'
 } else {
