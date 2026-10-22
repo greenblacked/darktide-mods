@@ -262,9 +262,11 @@ function Get-ModVersion {
         if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { continue }
         try {
             $j = Get-Content -LiteralPath $p -Raw -Encoding UTF8 | ConvertFrom-Json
-            if ($j -and $j.PSObject.Properties.Name -contains 'version' -and "$($j.version)".Trim()) {
+            # @(...) because an empty object ({}) has no Name to read under strict mode.
+            $jNames = if ($j) { @($j.PSObject.Properties | ForEach-Object { $_.Name }) } else { @() }
+            if ($j -and $jNames -contains 'version' -and "$($j.version)".Trim()) {
                 $v = "$($j.version)".Trim()
-                if ($f -eq '.nexus-mod.json' -and $j.PSObject.Properties.Name -contains 'modId' -and $j.modId) {
+                if ($f -eq '.nexus-mod.json' -and $jNames -contains 'modId' -and $j.modId) {
                     return "$v ($f, Nexus id $($j.modId))"
                 }
                 return "$v ($f)"
@@ -322,9 +324,16 @@ function Resolve-FullPath {
         An absolute path resolved against the PowerShell location, not the process
         directory: under Windows PowerShell the two differ, and .\bundle.zip would
         otherwise land in System32 or the profile folder.
+        A path on a drive that is not mounted (an unplugged external disk, a
+        changed drive letter) cannot be resolved that way; it is already rooted,
+        so the plain .NET form is used instead, and failing that the path as given.
     #>
     param([Parameter(Mandatory)][string] $Path)
-    return $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
+    try {
+        return $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
+    } catch {
+        try { return [System.IO.Path]::GetFullPath($Path) } catch { return $Path }
+    }
 }
 
 function Test-PathInside {
@@ -375,7 +384,7 @@ if ($ConfigPath -and (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) {
         }
         if ($raw -and $raw.Trim()) {
             $cfg = $raw | ConvertFrom-Json
-            $cfgState = 'found'
+            $cfgState = if ($cfg) { 'found' } else { 'found but holds no settings object' }
         } else {
             $cfgState = 'empty'
         }
@@ -429,7 +438,9 @@ function Get-SecretValue {
 
 function Get-CfgString {
     param([string] $Key)
-    if ($cfg -and $cfg.PSObject.Properties.Name -contains $Key -and "$($cfg.$Key)".Trim()) { return "$($cfg.$Key)" }
+    if (-not $cfg) { return '' }
+    # @(...) because an empty object ({}) has no Name to read under strict mode.
+    if (@($cfg.PSObject.Properties | ForEach-Object { $_.Name }) -contains $Key -and "$($cfg.$Key)".Trim()) { return "$($cfg.$Key)" }
     return ''
 }
 
@@ -553,7 +564,14 @@ $words = New-Object 'System.Collections.Generic.HashSet[string]' ([StringCompare
 Add-NameCandidate -Set $words -Name $env:USERNAME
 try { Add-NameCandidate -Set $words -Name ([Environment]::UserName) } catch { Write-Verbose 'no user name available' }
 if ($script:ProfileLiteral) { Add-NameCandidate -Set $words -Name (Split-Path -Leaf $script:ProfileLiteral) }
-foreach ($n in @($RedactName)) { Add-NameCandidate -Set $words -Name $n }
+foreach ($n in @($RedactName)) {
+    # Asked for by name, so say so rather than skip it quietly.
+    if ($n -and $n.Trim().Length -lt 3) {
+        Write-Warn "-RedactName '$n' is shorter than three characters and is not redacted; it would replace ordinary words everywhere."
+        continue
+    }
+    Add-NameCandidate -Set $words -Name $n
+}
 # A name seen in any C:\Users\<name> path is redacted everywhere it appears,
 # not only inside that path.
 $allRaw = @($rawConfigText, $stagingListing, $stagingOrder, $gameListing, $gameOrder,
@@ -628,7 +646,7 @@ if ($updateLogFile) {
 }
 if ($consoleLogFile) {
     $red = ConvertTo-RedactedText $consoleLog
-    Add-Entry -Name ('console/' + (Get-SafeEntryName $consoleLogFile.Name)) `
+    Add-Entry -Name ('console/' + (Get-SafeEntryName (ConvertTo-RedactedText $consoleLogFile.Name))) `
               -Text (Get-TailText -Text $red -Count $TailLines -Label (ConvertTo-RedactedText $consoleLogFile.Name)) -From 'game console log, tail'
 }
 
@@ -682,7 +700,9 @@ if ($OutFile) {
     }
 } else {
     $base = if ($modsRoot) { Split-Path -Parent (Resolve-FullPath $modsRoot) } else { $PSScriptRoot }
-    if (-not $base) { $base = $PSScriptRoot }
+    # A ModsRoot on a missing drive, or with no parent folder left, is no place to
+    # write; the scripts' folder always exists.
+    if (-not $base -or -not (Test-Path -LiteralPath $base -PathType Container)) { $base = $PSScriptRoot }
     $target = Join-Path (Join-Path $base 'support') $defaultName
     # Staging kept as the game's own mods folder puts its parent inside the game
     # folder. The default should still just work, so fall back to the scripts' folder.
