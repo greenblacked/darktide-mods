@@ -20,6 +20,7 @@
         .\darktide.ps1 loader     install or update the Darktide Mod Loader
         .\darktide.ps1 export     zip your whole loadout as a personal backup
         .\darktide.ps1 import     restore a loadout zip and deploy it
+        .\darktide.ps1 support    one redacted zip to attach to a bug report
 
     Everything is a dry run until you add -Apply, except 'status', 'check' and
     'links' which never write anything, and 'lock' which always writes the
@@ -64,13 +65,18 @@
     .\darktide.ps1 links
     Every mod and its Nexus page, so checking by hand is a list of links. No key,
     no network.
+
+.EXAMPLE
+    .\darktide.ps1 support -Apply
+    Writes a redacted darktide-support-<stamp>.zip to attach to a bug report.
+    Without -Apply it lists what would go in. Works without a config.json.
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
     [ValidateSet('init', 'status', 'check', 'links', 'update', 'deploy', 'sync', 'rollback', 'restore',
-                 'lock', 'loader', 'export', 'import', 'help')]
+                 'lock', 'loader', 'export', 'import', 'help', 'support')]
     [string]   $Verb = 'help',
 
     [switch]   $Apply,
@@ -107,8 +113,9 @@ $Importer = Join-Path $PSScriptRoot 'Import-DarktideLoadout.ps1'
 $Initer   = Join-Path $PSScriptRoot 'Initialize-DarktideConfig.ps1'
 $Loaderer = Join-Path $PSScriptRoot 'Install-DarktideLoader.ps1'
 $Finder   = Join-Path $PSScriptRoot 'Find-ModUpdates.ps1'
+$Supporter = Join-Path $PSScriptRoot 'New-SupportBundle.ps1'
 
-foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder)) {
+foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Supporter)) {
     if (-not (Test-Path -LiteralPath $s)) { throw "Missing script: $s" }
 }
 
@@ -131,6 +138,14 @@ if ($Verb -eq 'help') {
 if ($Verb -eq 'links') {
     Write-Head 'Where to check for updates'
     & $Finder -CheckGitHub:$CheckGitHub -Only $Only -Skip $Skip -OutFile $OutFile
+    return
+}
+
+# 'support' is for when something is wrong, and a missing or broken config.json is
+# one of the things that can be wrong. The script notes its absence and carries on.
+if ($Verb -eq 'support') {
+    Write-Head "Building a support bundle$(if (-not $Apply) { ' (dry run)' })"
+    & $Supporter -ConfigPath $ConfigPath -OutFile $OutFile -Apply:$Apply -Force:$Force -Confirm:$false
     return
 }
 

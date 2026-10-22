@@ -36,6 +36,7 @@ report-offline-*.csv
 nexus-catalog.json
 mod_backups/
 deploy_backups/
+support/
 .staging-*/
 *.bak
 
