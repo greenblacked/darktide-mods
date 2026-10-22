@@ -46,6 +46,7 @@ deploy_backups/
 # Mod profiles default to <parent of ModsRoot>\profiles, which is the repo root when
 # staging is the gitignored mods/ folder here. They are personal, like the backups.
 profiles/
+support/
 .staging-*/
 *.bak
 mods-map.json.tmp
