@@ -290,7 +290,7 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 | `loader` | Install or update the Darktide Mod Loader and patch the bundle. `-PatchOnly` re-patches after a game update; `-RestoreBackup` puts a previous loader back. |
 | `status` | Staged vs deployed, drift, loader state, backup sets. Read-only. |
 | `check` | Ask Nexus what's outdated. Needs an API key. Read-only. |
-| `links` | Where to look when you have no key: the Nexus page for every mod, plus the latest GitHub release tag for any mod mapped to a repository. Read-only. |
+| `links` | Where to look when you have no key: the Nexus page for every mod, plus the latest GitHub release tag for any mod mapped to a repository. `-Open` opens those pages in the browser. Read-only. |
 | `update` | Install newer archives from your download folder into staging. |
 | `deploy` | Push staging into the game folder. |
 | `sync` | `update` then `deploy`, then refresh the lockfile. Stops if a step fails. |
@@ -329,6 +329,8 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 .\darktide.ps1 diff -OutFile diff.md                       # staging vs lockfile, also written as markdown
 .\darktide.ps1 errors -Last 3 -OutFile errors.md           # culprits from the three newest console logs
 .\darktide.ps1 errors -LogDir 'D:\from-a-friend\logs'      # someone else's logs, no config needed
+.\darktide.ps1 links -Open -Only markers_aio,scoreboard     # open those Nexus pages in the browser
+.\darktide.ps1 links -CheckGitHub -Open                     # open only the pages whose GitHub release differs
 ```
 
 ---
@@ -562,6 +564,27 @@ It touches nothing and needs no key. Each row is the version this tool last inst
 and the author's page. Open the page, download if Nexus shows newer, leave the filename
 alone, run `update` again. A mod with no `modId` in the lockfile says so rather than
 getting a guessed link.
+
+Opening the pages is the one step here that can be automated without a key:
+
+```powershell
+.\darktide.ps1 links -Open -Only markers_aio,scoreboard    # open those two pages
+.\darktide.ps1 links -CheckGitHub -Open                    # open only what GitHub says has moved
+```
+
+`-Open` prints the list as usual, then opens each selected mod's Nexus page in your
+default browser. The address is always built from the lockfile's numeric `modId` and
+game domain, never copied from its `url` field: the browser is started through the
+shell, which would run a program or open a local file just as readily as a web page.
+Two folders that share a mod id open one tab. A mod with no `modId` is listed as
+`no page`. With `-CheckGitHub`, only the mods whose GitHub check says `differs` are
+opened; a mod with no repository mapped, or whose check failed, stays closed.
+
+More than 10 pages and it opens none, says how many there were, and exits 1, so a
+forgotten `-Only` does not bury the browser under 45 tabs. Narrow the selection with
+`-Only` / `-Skip`, or raise the cap on the script itself
+(`.\Find-ModUpdates.ps1 -Open -OpenLimit 50`, up to 100). It still downloads nothing;
+the click on Nexus stays yours.
 
 #### The one upstream that answers with no key at all
 
@@ -908,6 +931,7 @@ What it covers:
 | `tests/UpgradeWorkflow.Tests.ps1` | The whole upgrade, in order, through `darktide.ps1`: dry run, `update -Apply` into staging only, `deploy -Apply` to make it live, `lock`, then rollback — including the two properties that look like bugs until you know staging is the source of truth. |
 | `tests/Upgrade.Tests.ps1` | The `upgrade` verb: answering no (or nothing) leaves staging, the game and both backup folders byte-identical; `-Yes` and `y` update staging and the game, make one backup set and one `gamemods-*.zip`, and the summary names both in its undo commands; the lockfile is regenerated; an archive that arrives while it asks is not installed; nothing to do exits 0 without asking; a failed update never reaches deploy; a running game (mocked) is warned about at plan time and refused at apply time; a `-NonInteractive` session without `-Yes` refuses instead of hanging. |
 | `tests/FindUpdates.Tests.ps1` | The `links` list: a page for every mod with an id, a built one where the lockfile has no `url`, `no Nexus id` rather than a guess, `-Only` / `-Skip` / `-OutFile`, a malformed `githubRepo` reported and ignored, `same` vs `differs` (never “newer”), and a mocked GitHub call whose failures stay distinguishable. |
+| `tests/OpenPages.Tests.ps1` | `links -Open` against a mocked `Start-Process`: exactly the selected pages open, built from the id; a mod with no id is `no page`; nothing opens without `-Open` or over `-OpenLimit`; a shared id opens once; with `-CheckGitHub` only `differs` opens; a hostile lockfile `url`, `modId` or `game` never reaches `Start-Process`; nothing is written. Holds up off Windows. |
 | `tests/Attribution.Tests.ps1` | The validator's attribution checks actually fire — proven by feeding them content that must fail, so a check cannot rot into a no-op unnoticed. |
 | `tests/Package.Tests.ps1` | The release package: only allow-listed files, no mod content or config, the archive builds and its manifest matches `-ListOnly`. |
 | `tests/PatchCheck.Tests.ps1` | `patchcheck` against a fake game and Steam manifest: no baseline, in sync by matching fingerprint (uppercase hash), database replaced, Steam update pending, no manifest, missing loader files, the timestamp fallback, `-Remember` writing only the baseline beside staging, the game folder left untouched, `PREDATES-PATCH` / `OK` / `PINNED` / `UNKNOWN` classification, `-OutFile`, and exit codes through the dispatcher. |
@@ -988,7 +1012,7 @@ goes into `$Include` in the same commit that wires it into the dispatcher.
 | `Export-DarktideLoadout.ps1` | Packs your loadout into one zip (local backup). |
 | `Import-DarktideLoadout.ps1` | Restores a loadout zip and deploys it. |
 | `Invoke-DarktideUpgrade.ps1` | The `upgrade` verb: runs the update and deploy dry runs, shows one plan, asks once, then calls `Update-DarktideMods.ps1`, `Deploy-DarktideMods.ps1` and `New-ModpackLock.ps1` and prints the undo commands. Writes nothing itself. |
-| `Find-ModUpdates.ps1` | The `links` verb: Nexus pages for every mod, and GitHub release tags for mods mapped to a repository. No key, no writes. |
+| `Find-ModUpdates.ps1` | The `links` verb: Nexus pages for every mod, and GitHub release tags for mods mapped to a repository. `-Open` opens the pages in the browser. No key, no writes. |
 | `Get-DarktideBuildState.ps1` | The `patchcheck` verb: Steam build state, bundle database fingerprint vs the loader's record, missing loader files, mods installed before the last game update. No writes to the game folder. |
 | `Compare-DarktideLoadout.ps1` | The `diff` verb: compares two loadouts (lockfile, export zip, `git:<rev>` or current staging). Read-only. |
 | `Get-DarktideErrors.ps1` | The `errors` verb: reads the game's console logs and ranks the mods most likely behind their errors. Read-only, redacts your user name and profile path. |
