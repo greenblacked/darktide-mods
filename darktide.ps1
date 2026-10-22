@@ -40,7 +40,9 @@
 
 .PARAMETER SyncIdsFromMap
     With 'lock': copy non-null modId/url values from mods-map.json into the
-    existing lockfile. Does not need ModsRoot or a full regenerate.
+    existing lockfile. Does not need ModsRoot or a full regenerate. With
+    -OutFile, that file is the existing lockfile to update in place, instead of
+    the repository one; it is edited without asking for -Force.
 
 .PARAMETER Apply
     Actually make changes. Without it you get a plan and nothing else.

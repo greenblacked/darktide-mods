@@ -563,6 +563,34 @@ Describe 'darktide.ps1 need and lock -OutFile' {
         [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($script:RepoLock)) | Should -Be $repoBefore
     }
 
+    It 'lock -SyncIdsFromMap -OutFile updates that file in place and leaves the repository lockfile byte-identical' {
+        # With -SyncIdsFromMap, -OutFile names an existing lockfile to update, not a
+        # new one to write, so there is no -Force check here.
+        $map  = Get-Content -LiteralPath (Join-Path $script:RepoRoot 'mods-map.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+        $copy = Get-Content -LiteralPath $script:RepoLock -Raw -Encoding UTF8 | ConvertFrom-Json
+        $target = @($copy.mods | Where-Object {
+            $map.PSObject.Properties.Name -contains $_.folder -and
+            $map.($_.folder).PSObject.Properties.Name -contains 'modId' -and
+            $map.($_.folder).modId
+        })[0]
+        $target | Should -Not -BeNullOrEmpty
+        $wantId = [int] $map.($target.folder).modId
+        $target.modId = $null
+        $target.url   = $null
+
+        $share = Join-Path $script:Root 'copy.lock.json'
+        ($copy | ConvertTo-Json -Depth 8) | Set-Content -LiteralPath $share -Encoding UTF8
+        $repoBefore = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($script:RepoLock))
+
+        & $script:Dispatcher lock -SyncIdsFromMap -OutFile $share *>&1 | Out-Null
+
+        [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($script:RepoLock)) | Should -Be $repoBefore
+        $after = Get-Content -LiteralPath $share -Raw -Encoding UTF8 | ConvertFrom-Json
+        $row = @($after.mods | Where-Object { $_.folder -eq $target.folder })[0]
+        $row.modId | Should -Be $wantId
+        $row.url   | Should -Be "$script:Nexus/$wantId"
+    }
+
     It 'a lockfile from lock -OutFile, read back by need, shows nothing missing' {
         $share = Join-Path $script:Root 'my-loadout.lock.json'
         $out   = Join-Path $script:Root 'need.json'

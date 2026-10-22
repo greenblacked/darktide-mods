@@ -247,10 +247,10 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 | `rollback` | Undo the last staging install. Dry run until `-Apply`. |
 | `restore` | Undo the last deploy to the game folder. Dry run until `-Apply`. |
 | `lock` | Regenerate `darktide-modpack.lock.json` from what's installed. |
-| `lock -SyncIdsFromMap` | Copy non-null Nexus ids (and urls) from `mods-map.json` into the existing lockfile. No `ModsRoot` needed; versions and hashes stay put. |
+| `lock -SyncIdsFromMap` | Copy non-null Nexus ids (and urls) from `mods-map.json` into the existing lockfile. No `ModsRoot` needed; versions and hashes stay put. With `-OutFile <file>`, `<file>` is an existing lockfile to update in place instead of the repository one; there is no `-Force` check, because updating that file is the point. |
 | `export` | Zip your whole loadout into one file, as a personal backup. |
 | `import` | Restore a loadout zip into staging and deploy it, in one step. |
-| `lock -OutFile <file>` | Write the lockfile to `<file>` instead, to send to someone. The repository lockfile is not touched. Refuses to replace an existing file without `-Force`. |
+| `lock -OutFile <file>` | Write the lockfile to `<file>` instead, to send to someone. The repository lockfile is not touched. Refuses to replace an existing file without `-Force` (except with `-SyncIdsFromMap`, see above). |
 | `need -Path <file>` | Compare a friend's lockfile with your staging: what you are missing (with its Nexus link), what differs, and where each missing mod goes in their load order. Read-only; never downloads. |
 
 ### Useful switches
@@ -264,6 +264,7 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 .\darktide.ps1 deploy -Apply -RunToggle                   # re-patch only, loader already present
 .\darktide.ps1 update -Apply -Force -Only NumericUI         # reinstall or downgrade one mod
 .\darktide.ps1 lock -SyncIdsFromMap                        # push mods-map ids into the lockfile
+.\darktide.ps1 lock -SyncIdsFromMap -OutFile my-loadout.lock.json # ...into that existing file, in place
 .\darktide.ps1 links -OutFile updates.md                   # the check-by-hand list, as markdown
 .\darktide.ps1 links -CheckGitHub                          # ...and ask GitHub for release tags
 .\darktide.ps1 lock -OutFile my-loadout.lock.json          # a lockfile to send a friend
@@ -727,7 +728,7 @@ What it covers:
 | `tests/UpgradeWorkflow.Tests.ps1` | The whole upgrade, in order, through `darktide.ps1`: dry run, `update -Apply` into staging only, `deploy -Apply` to make it live, `lock`, then rollback — including the two properties that look like bugs until you know staging is the source of truth. |
 | `tests/FindUpdates.Tests.ps1` | The `links` list: a page for every mod with an id, a built one where the lockfile has no `url`, `no Nexus id` rather than a guess, `-Only` / `-Skip` / `-OutFile`, a malformed `githubRepo` reported and ignored, `same` vs `differs` (never “newer”), and a mocked GitHub call whose failures stay distinguishable. |
 | `tests/Attribution.Tests.ps1` | The validator's attribution checks actually fire — proven by feeding them content that must fail, so a check cannot rot into a no-op unnoticed. |
-| `tests/LoadoutNeed.Tests.ps1` | `need` against a friend's lockfile: the exact `MISSING` set and its links, `no Nexus id` when there is none, `DIFFERENT` vs unknown (including a content hash that must agree with `New-ModpackLock.ps1`), load order marking; hostile folder names, non-Nexus urls, bad ids, oversize files, wrong schema and terminal escape sequences refused or neutralised; `-OutFile` `.md` / `.json` and `-Force`; staging and the repository lockfile unchanged; the network mocked and never called; `lock -OutFile` writes the given path and leaves the repository lockfile byte-identical. |
+| `tests/LoadoutNeed.Tests.ps1` | `need` against a friend's lockfile: the exact `MISSING` set and its links, `no Nexus id` when there is none, `DIFFERENT` vs unknown (including a content hash that must agree with `New-ModpackLock.ps1`), load order marking (`base` left out, bracketed folder names matched); hostile folder names, non-Nexus urls, bad ids, oversize files, wrong schema and terminal escape sequences refused or neutralised; `-OutFile` `.md` / `.json` and `-Force`; staging and the repository lockfile unchanged; the network mocked and never called; `need` exits 1 through the dispatcher, including as a separate process, when anything was dropped, and 0 on a clean run after a stale failure code; `lock -OutFile` writes the given path and `lock -SyncIdsFromMap -OutFile` edits the given copy, both leaving the repository lockfile byte-identical. |
 | `tests/Package.Tests.ps1` | The release package: only allow-listed files, no mod content or config, the archive builds and its manifest matches `-ListOnly`. |
 
 ---
