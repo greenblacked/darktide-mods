@@ -287,7 +287,7 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 | Verb | What it does |
 |---|---|
 | `init` | Find your Darktide install automatically and write `config.json`. |
-| `loader` | Install or update the Darktide Mod Loader and patch the bundle. |
+| `loader` | Install or update the Darktide Mod Loader and patch the bundle. `-PatchOnly` re-patches after a game update; `-RestoreBackup` puts a previous loader back. |
 | `status` | Staged vs deployed, drift, loader state, backup sets. Read-only. |
 | `check` | Ask Nexus what's outdated. Needs an API key. Read-only. |
 | `links` | Where to look when you have no key: the Nexus page for every mod, plus the latest GitHub release tag for any mod mapped to a repository. Read-only. |
@@ -310,7 +310,11 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 .\darktide.ps1 deploy -Apply -InstallLoader               # fresh install / after a game patch
 # -InstallLoader calls Install-DarktideLoader.ps1 (copy + dtkit-patch). Do not also pass
 # -RunToggle on that run: the toggle bat flips state and would undo the patch.
-.\darktide.ps1 deploy -Apply -RunToggle                   # re-patch only, loader already present
+.\darktide.ps1 loader -PatchOnly -Apply                   # re-patch only, loader already present
+# Prefer that to -RunToggle: it runs dtkit-patch --patch and does nothing if already patched,
+# where the toggle flips state, so running it a second time turns every mod off.
+.\darktide.ps1 loader -RestoreBackup                      # list loader backups; -Apply restores the newest
+.\darktide.ps1 loader -RestoreBackup -BackupSet 20261021 -Apply   # ...or the one named
 .\darktide.ps1 update -Apply -Force -Only NumericUI         # reinstall or downgrade one mod
 .\darktide.ps1 lock -SyncIdsFromMap                        # push mods-map ids into the lockfile
 .\darktide.ps1 links -OutFile updates.md                   # the check-by-hand list, as markdown
@@ -346,7 +350,12 @@ Your `mod_load_order.txt` is never overwritten — the loader ships its own, and
 yours would wipe your mod list.
 
 **Updating follows the loader's own instructions:** unpatch the bundle database, copy the new
-files, re-patch. The previous loader is zipped to `loader_backups\` first.
+files, re-patch. The previous loader is copied to a `loader_backups\loader-<timestamp>\`
+folder first (a plain folder, not a zip), beside your staging folder. Only the loader's own
+files go in it — `binaries\mod_loader`, `bundle\*.patch_999`, `tools\dtkit-patch.exe`,
+`toggle_darktide_mods.bat` — plus a copy of `.darktide-loader.json`, so a restore knows which
+version it is putting back. The game's own files in `binaries\` and `bundle\` are never backed
+up or restored; Steam owns those.
 
 > **Never run `toggle_darktide_mods.bat` twice.** It *toggles*: once patches, twice unpatches
 > and every mod silently stops loading. This tooling always calls `dtkit-patch` with an
@@ -354,6 +363,43 @@ files, re-patch. The previous loader is zipped to `loader_backups\` first.
 
 The installed version is recorded in `<game>\.darktide-loader.json` and shown by `status`.
 Re-running with the same version does nothing and doesn't touch the bundle at all.
+
+After every successful `--patch` the same file records a fingerprint of the patched bundle
+database, under `bundleDb`: its SHA-256, size and last-write time. A Steam update replaces
+`bundle\bundle_database.data`, so a different hash later means the patch is gone.
+
+### Re-patching after a game update
+
+```powershell
+.\darktide.ps1 loader -PatchOnly          # compares the bundle database with the fingerprint
+.\darktide.ps1 loader -PatchOnly -Apply   # re-patches if it changed
+```
+
+`-PatchOnly` uses the `dtkit-patch.exe` already in the game's `tools\` folder: no download, no
+file copy, never the toggle. If the database still matches the recorded fingerprint it says
+`Already patched` and does nothing. Otherwise, under `-Apply`, it copies the database to
+`loader_backups\bundledb-<timestamp>.data`, runs `dtkit-patch --patch`, and records the new
+fingerprint. If the patcher or the mod entry bundle has gone missing it says
+`loader files missing: run .\darktide.ps1 loader -Apply -Force`, exits `1` and writes nothing.
+
+An install made before the fingerprint existed has none on record, so the first `-PatchOnly`
+patches to get one. Whether `dtkit-patch --patch` is harmless on a database that is already
+patched is not something this repository can check; if it refuses, nothing is recorded and the
+database copy is in `loader_backups\`.
+
+### Putting a previous loader back
+
+```powershell
+.\darktide.ps1 loader -RestoreBackup                              # lists the backups, newest first
+.\darktide.ps1 loader -RestoreBackup -Apply                       # restores the newest
+.\darktide.ps1 loader -RestoreBackup -BackupSet 20261021 -Apply   # restores the one whose name contains this
+```
+
+Under `-Apply` it backs up the loader you have now (so the restore can itself be undone),
+unpatches, copies the backed-up loader files in, patches again, and rewrites
+`.darktide-loader.json` with the backed-up version. A `-BackupSet` that matches more than one
+backup is refused. Backups made before the state file was stored with them restore as version
+`restored-unknown`, which the next `loader -Apply` treats as out of date.
 
 ---
 
@@ -413,8 +459,11 @@ Every verb is idempotent: running it twice does the same thing as running it onc
 - `mod_load_order.txt` is only ever appended to, and never with a name already in it.
 - `loader` compares the version you have against `<game>\.darktide-loader.json` and stops if
   they match — it doesn't even touch the bundle database, so it can't toggle your mods off.
+- `loader -PatchOnly` compares the bundle database with the fingerprint recorded after the last
+  patch and stops if they match — no backup, no patcher call.
 - Staging, deploy, and loader backups are each pruned to the newest `-KeepBackups`
-  archives (default 10), so repeated runs cannot fill the disk.
+  (default 10), so repeated runs cannot fill the disk. Loader folders and bundle database
+  copies are counted separately.
 
 ---
 
@@ -593,8 +642,10 @@ folder is unmapped.
 The order matters:
 
 ```powershell
-# 1. Re-apply the mod loader's bundle patch (Steam replaced it)
-.\darktide.ps1 loader -Apply -Force
+# 1. Re-apply the mod loader's bundle patch (Steam replaced it).
+#    Not the toggle bat: it flips state, so a second run turns every mod off.
+.\darktide.ps1 loader -PatchOnly -Apply
+#    If the loader itself has a new release, install that instead: .\darktide.ps1 loader -Apply
 
 # 2. Update the framework first - most mods depend on it
 .\darktide.ps1 update -Apply -Only dmf
@@ -628,7 +679,8 @@ This tooling deletes and replaces directories, so it is deliberately paranoid:
 - **Staged installs.** A mod is extracted to `.staging-<name>\` and only swapped in once the
   new copy is on disk. A corrupt archive can never leave you with a deleted mod.
 - **Backs up before every write** — staging installs to `mod_backups\<timestamp>\`, deploys to
-  `deploy_backups\gamemods-<timestamp>.zip`, loader updates to `loader_backups\`. Retention is
+  `deploy_backups\gamemods-<timestamp>.zip`, loader updates and restores to
+  `loader_backups\loader-<timestamp>\`, re-patches to `loader_backups\bundledb-<timestamp>.data`. Retention is
   capped (default 10) so repeated runs cannot fill the disk.
 - **Archive contents decide the target folder**, taken from the `*.mod` file inside. If that
   doesn't match the mod being updated, the install is refused rather than guessed at.
@@ -720,6 +772,7 @@ What it covers:
 | `tests/Lock.Tests.ps1` | Lockfile shape, ID mapping, no mod content, stable regeneration, content hashes that move only when a mod changes. |
 | `tests/Setup.Tests.ps1` | Game detection: real game files vs a folder that only has the right name, multi-drive Steam libraries parsed from `libraryfolders.vdf`, and a generated config the other tools can consume. |
 | `tests/Loader.Tests.ps1` | Loader version parsing, payload validation, install/update, base into staging, your load order preserved, backups, backup retention, hostile loader zips refused, and — against a stub patcher — that it uses `--patch`/`--unpatch` in the right order and never the toggle. |
+| `tests/LoaderRepatch.Tests.ps1` | `loader -PatchOnly`: one explicit `--patch`, never `--unpatch` or the toggle; nothing written on a dry run; no patcher call when the fingerprint matches; exit `1` with nothing written when `dtkit-patch.exe` or the mod entry bundle is missing; database copies made and pruned apart from loader folders; old state files without `bundleDb`. A normal install records `bundleDb` and keeps other tools' fields. `loader -RestoreBackup`: v1 → v2 → restore v1 with `--unpatch` then `--patch`, the replaced loader backed up first, game files in old full-folder backups never copied back, and an ambiguous `-BackupSet` refused. |
 | `tests/Export.Tests.ps1` | The loadout archive: every mod included, forward-slash entry names so it opens on any tool, no overwrite without `-Force`, never written inside the folder it's archiving. |
 | `tests/Import.Tests.ps1` | Export → import round trip onto an empty machine, replacing an existing install without merging stale files, traversal archives refused, and restore-plus-deploy in one run. |
 | `tests/Dispatcher.Tests.ps1` | `rollback` / `restore` without `-Apply` write nothing; with `-Apply` they reach the updater and deployer; `sync` does not deploy when update fails. |
@@ -818,7 +871,7 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser
 | `Skipping '<file>': no *.mod file inside` | Not a DMF mod archive (a texture pack, a readme bundle, or a nested zip). Ignored on purpose. |
 | Deploy says `Already in sync` when you expected work | Staging really does match the game folder. If you edited the game folder directly, that edit is what `-Mirror` or `-Force` is for. |
 | Game crashes on load after an update | `.\darktide.ps1 restore -Apply`, then bisect: comment out half of `mod_load_order.txt` with `--` and restart. See [After a Darktide patch](#after-a-darktide-patch). |
-| Mods silently stop loading after a game update | Steam replaced the patched bundle. `.\darktide.ps1 loader -Apply` or `.\darktide.ps1 deploy -Apply -RunToggle`. |
+| Mods silently stop loading after a game update | Steam replaced the patched bundle. `.\darktide.ps1 loader -PatchOnly -Apply`. Avoid running the toggle bat by hand: it flips state, so a second run turns mods off again. |
 | `HTTP 403 ... premium users only` | Expected on a free Nexus account. Version *checking* works on free; downloading through the API does not. Download in the browser. |
 | `HTTP 429` / rate limited | Nexus allows 100 requests/hour, 2500/day. Wait it out, or use `-NoApi`. |
 
