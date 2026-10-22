@@ -167,6 +167,14 @@ Describe 'upgrade' {
             Get-InstalledVersion (Join-Path $script:GameMods 'alpha_mod') | Should -Be '2.0.0'
         }
 
+        It 'regenerates the lockfile with content hashes' {
+            & $script:Upgrader -ConfigPath $script:Config -LockFile $script:Lock -Yes *>&1 | Out-Null
+
+            $mods = @((Get-Content -LiteralPath $script:Lock -Raw | ConvertFrom-Json).mods)
+            $mods.Count | Should -BeGreaterThan 0
+            foreach ($m in $mods) { $m.contentSha256 | Should -Not -BeNullOrEmpty }
+        }
+
         It 'names the backup set and the game backup it made, with the commands that undo them' {
             $out = & $script:Upgrader -ConfigPath $script:Config -LockFile $script:Lock -Yes *>&1 | Out-String
 

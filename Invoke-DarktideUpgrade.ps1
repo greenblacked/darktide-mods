@@ -21,8 +21,8 @@
          arrive while the question is open are left for next time). If it fails,
          the deploy does not run. The deploy keeps all of its own guards: the game
          folder check, the gamemods-*.zip backup, and the refusal while the game
-         is running. The lockfile is then regenerated the same way 'sync -Apply'
-         does it (New-ModpackLock.ps1 -NoHash).
+         is running. The lockfile is then regenerated with content hashes, so it
+         can still tell when an installed mod has drifted.
       5. Summary: what changed, the staging backup set and the game backup zip this
          run created, and the exact commands that undo it.
 
@@ -513,8 +513,9 @@ if (-not $deployOk) {
 
 Write-Host ''
 Write-Step '== Refreshing the lockfile'
-# The same call 'sync -Apply' makes in darktide.ps1.
-$lockArgs = @{ ModsRoot = $modsRoot; NoHash = $true }
+# With hashes: -NoHash would write contentSha256 = null for every mod and wipe the
+# drift baseline (the same defect fixed in 'sync -Apply').
+$lockArgs = @{ ModsRoot = $modsRoot }
 if ($LockFile) { $lockArgs['OutFile'] = $LockFile }
 $lock = Invoke-Child -Show -Command { & $Locker @lockArgs }
 if ($lock.Failure -or $lock.ExitCode -ne 0) {
