@@ -419,7 +419,8 @@ Every verb is idempotent: running it twice does the same thing as running it onc
 - Staging, deploy, and loader backups are each pruned to the newest `-KeepBackups`
   archives (default 10), so repeated runs cannot fill the disk.
 - `profile -Action switch` to the profile staging already uses rewrites nothing and takes
-  no load-order backup; its deploy then finds nothing to copy.
+  no load-order backup. Its deploy still runs, and has nothing to copy unless the game
+  folder had drifted from staging, in which case it backs up and resyncs like any deploy.
 
 ---
 
