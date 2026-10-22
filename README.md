@@ -674,6 +674,7 @@ What it covers:
 | `tests/FindUpdates.Tests.ps1` | The `links` list: a page for every mod with an id, a built one where the lockfile has no `url`, `no Nexus id` rather than a guess, `-Only` / `-Skip` / `-OutFile`, a malformed `githubRepo` reported and ignored, `same` vs `differs` (never “newer”), and a mocked GitHub call whose failures stay distinguishable. |
 | `tests/Attribution.Tests.ps1` | The validator's attribution checks actually fire — proven by feeding them content that must fail, so a check cannot rot into a no-op unnoticed. |
 | `tests/Package.Tests.ps1` | The release package: only allow-listed files, no mod content or config, the archive builds and its manifest matches `-ListOnly`. |
+| `tests/AllowlistCheck.Tests.ps1` | The validator's allow-list coverage check, run against a copy of the repository: it passes on the real layout, fails and names the script when a root script or a dispatcher reference is missing from `$Include`, accepts a script on its dev-only list, and fails rather than passing when it can no longer find the dispatcher's references. Runs on any OS. |
 
 ---
 
@@ -721,6 +722,17 @@ Run the validator locally the same way CI does:
 Install-Module PSScriptAnalyzer -Scope CurrentUser
 .\Test-Modpack.ps1
 ```
+
+Two of its checks guard the release allow-list (`$Include` in `New-ReleasePackage.ps1`).
+`release allow-list files exist` fails when the list names something that is not there.
+`release allow-list covers every dispatcher script` covers the opposite case: every `.ps1`
+at the repository root has to be on the list or on a short dev-only list inside the check,
+where each entry carries a reason (today that is only `New-ReleasePackage.ps1`), and every
+script `darktide.ps1` resolves with `Join-Path $PSScriptRoot '<name>.ps1'` has to ship.
+The dispatcher refuses to run any verb while one of its scripts is missing, so a script
+left off the list would break every verb in the released package while every other
+check stayed green. The failure message names each missing script. A new verb's script
+goes into `$Include` in the same commit that wires it into the dispatcher.
 
 ---
 
