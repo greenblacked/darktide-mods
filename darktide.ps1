@@ -41,13 +41,16 @@
         .\darktide.ps1 pin        list held mods; with -Only, hold them at their version
         .\darktide.ps1 intake     classify the archives in your download folder
                                   and list what is still to download
+        .\darktide.ps1 profile    save, list, show, switch or delete a named load order
 
     Everything is a dry run until you add -Apply, except 'status', 'check',
     'links', 'patchcheck', 'diff' and 'intake' which never write anything
     (patchcheck -Remember stores a baseline beside staging), 'lock' which always
-    writes the manifest, and 'upgrade', which shows its plan and asks before it
-    writes (answering no writes nothing). The dry-run default includes rollback
-    and restore.
+    writes the manifest, 'profile -Action save', which writes one new file in
+    the profiles folder and will not replace an existing profile without -Force,
+    and 'upgrade', which shows its plan and asks before it writes (answering no
+    writes nothing). The dry-run default includes rollback, restore and 'profile
+    -Action switch'.
 
     'enable' and 'disable' edit only the staging mod_load_order.txt. Run
     'deploy -Apply' afterwards to make the change live.
@@ -70,6 +73,12 @@
 .PARAMETER SyncIdsFromMap
     With 'lock': copy non-null modId/url values from mods-map.json into the
     existing lockfile. Does not need ModsRoot or a full regenerate.
+
+.PARAMETER Action
+    With 'profile': save, list, show, switch or delete. Default: list.
+
+.PARAMETER Name
+    With 'profile': the profile to save, show, switch to or delete, e.g. 'full'.
 
 .PARAMETER Apply
     Actually make changes. Without it you get a plan and nothing else.
@@ -199,13 +208,17 @@
     Run after downloading, before update -Apply: what each archive in the download
     folder is, and which lockfile mods are still missing. Exits 1 if an archive
     carries a different Nexus id from the mod it would replace.
+
+.EXAMPLE
+    .\darktide.ps1 profile -Action switch -Name minimal -Apply
+    Make the saved profile 'minimal' the staging load order and deploy it.
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
     [ValidateSet('init', 'status', 'check', 'links', 'update', 'deploy', 'sync', 'rollback', 'restore',
-                 'lock', 'loader', 'export', 'import', 'help', 'upgrade', 'patchcheck', 'diff', 'errors', 'settings', 'changes', 'enable', 'disable', 'pin', 'intake')]
+                 'lock', 'loader', 'export', 'import', 'help', 'upgrade', 'patchcheck', 'diff', 'errors', 'settings', 'changes', 'enable', 'disable', 'pin', 'intake', 'profile')]
     [string]   $Verb = 'help',
 
     [switch]   $Apply,
@@ -235,6 +248,8 @@ param(
     [switch]   $Open,
     [switch]   $Unpin,
     [string]   $Reason,
+    [string]   $Action,
+    [string]   $Name,
     [string]   $ConfigPath = (Join-Path $PSScriptRoot 'config.json')
 )
 
@@ -263,8 +278,9 @@ $Changer  = Join-Path $PSScriptRoot 'Show-ModChanges.ps1'
 $Toggler  = Join-Path $PSScriptRoot 'Set-ModState.ps1'
 $Pinner   = Join-Path $PSScriptRoot 'Set-ModPin.ps1'
 $Intaker  = Join-Path $PSScriptRoot 'Test-DownloadedMods.ps1'
+$Profiler = Join-Path $PSScriptRoot 'Switch-DarktideProfile.ps1'
 
-foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Upgrader, $BuildState, $Differ, $Blamer, $SettingsBackup, $Changer, $Toggler, $Pinner, $Intaker)) {
+foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Upgrader, $BuildState, $Differ, $Blamer, $SettingsBackup, $Changer, $Toggler, $Pinner, $Intaker, $Profiler)) {
     if (-not (Test-Path -LiteralPath $s)) { throw "Missing script: $s" }
 }
 
@@ -617,5 +633,17 @@ switch ($Verb) {
         & $Intaker -ConfigPath $ConfigPath -Only $Only -Skip $Skip -OutFile $OutFile -Force:$Force
         $code = if (Test-Path Variable:LASTEXITCODE) { $LASTEXITCODE } else { 0 }
         exit $code
+    }
+
+    'profile' {
+        $act = if ($Action) { $Action } else { 'list' }
+        $dry = (-not $Apply) -and ($act -eq 'switch' -or $act -eq 'delete')
+        Write-Head "Mod profiles: $act$(if ($dry) { ' (dry run)' })"
+        # The profile script always ends with an explicit exit code; pass it on, since a
+        # switch whose deploy failed has already changed staging and must not look green.
+        & $Profiler -ConfigPath $ConfigPath -Action $act -Name $Name -Apply:$Apply -Force:$Force -Confirm:$false
+        $code = if (Test-Path Variable:LASTEXITCODE) { $LASTEXITCODE } else { 0 }
+        if ($code) { exit $code }
+        return
     }
 }

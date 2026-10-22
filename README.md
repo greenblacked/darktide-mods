@@ -114,6 +114,7 @@ notepad config.json
 | `LoaderSource` | Unzipped Darktide Mod Loader folder or its `.zip`. `init` fills this in if it finds one. |
 | `BackupRoot` | Staging backups. Leave blank for `<parent of ModsRoot>\mod_backups`. |
 | `DeployBackupRoot` | Game-folder backups. Leave blank for `<parent of ModsRoot>\deploy_backups`. |
+| `ProfilesRoot` | Optional. Where [profiles](#profiles) are kept. Leave out for `<parent of ModsRoot>\profiles`. Must not be inside `ModsRoot`. |
 | `ApiKey` | Do not set. `init` will not write this field. Use the `NEXUS_API_KEY` environment variable — see [Checking versions locally](#checking-versions-locally-step-by-step). |
 
 `config.json` is gitignored and never leaves your machine. Use `\\` in JSON paths.
@@ -316,6 +317,7 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 | `enable` | Switch a disabled mod back on (`-Only`). Dry run until `-Apply`. |
 | `pin` | Hold mods at their current version so `update` leaves them alone, `-Force` included. Lists pins on its own; `-Only` pins, `-Unpin` releases. Dry run until `-Apply`. See [Holding a mod back](#holding-a-mod-back). |
 | `intake` | Classify every archive in your download folder against staging and the lockfile, and list what is still to download. Run it before `update -Apply`. Read-only; exits `1` on an `ID-MISMATCH`. |
+| `profile` | Save, list, show, switch or delete named load orders such as `full` or `minimal`. `switch` deploys; it and `delete` are dry runs until `-Apply`. See [Profiles](#profiles). |
 
 ### Useful switches
 
@@ -350,6 +352,7 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 .\darktide.ps1 pin -Only NumericUI -Reason 'crashes on 1.4' -Apply   # hold one mod back
 .\darktide.ps1 pin -Only NumericUI -Unpin -Apply              # ...and let it update again
 .\darktide.ps1 intake -OutFile intake.json -Force          # what is in DownloadDir, as JSON
+.\darktide.ps1 profile -Action switch -Name minimal -Apply  # swap the load order and deploy
 ```
 
 ---
@@ -477,6 +480,58 @@ Check it with `.\darktide.ps1 status`, then launch the game.
 
 ---
 
+## Profiles
+
+A profile is a named copy of your staging `mod_load_order.txt`. Every mod stays installed in
+staging; the mod framework only loads what the load order lists, so a lighter set for solo
+play or for chasing a crash is one file swap and a deploy away.
+
+```powershell
+.\darktide.ps1 profile -Action save -Name full          # snapshot the current load order
+# edit mod_load_order.txt (comment mods out with --), then:
+.\darktide.ps1 profile -Action save -Name minimal
+.\darktide.ps1 profile                                  # list; * marks the one staging matches
+.\darktide.ps1 profile -Action show -Name minimal       # contents, and mods missing from staging
+.\darktide.ps1 profile -Action switch -Name full        # the plan: what gets enabled and disabled
+.\darktide.ps1 profile -Action switch -Name full -Apply # back up, switch, deploy
+.\darktide.ps1 profile -Action delete -Name minimal -Apply
+```
+
+Profiles are plain text files in `<parent of ModsRoot>\profiles\<name>.txt`, or wherever
+`ProfilesRoot` in `config.json` points. They are never kept inside staging: deploy and
+export treat every folder in there as a mod. Names are letters, digits, `.`, `_` and `-`,
+up to 40 characters.
+
+`switch -Apply` does three things, in order:
+
+1. Copies the current staging load order to `<profiles>\backups\mod_load_order-<stamp>.txt`.
+   These are pruned to the newest `-KeepBackups` (default 10) when the script is run
+   directly; the verb uses the default.
+2. Writes the profile over the staging `mod_load_order.txt`.
+3. Runs `deploy -Apply`, which takes its usual `gamemods-*.zip` backup and refuses while
+   the game is running. The profile script never writes the game folder itself.
+
+It refuses up front, before anything is written, when the profile names a mod that is not
+in staging (comment the line out with `--` to keep it in the file), when the game is
+running, or when `GamePath` is one `deploy` would refuse: missing, a drive root, a folder
+directly under a drive root, or not Darktide. At the end it prints the undo for both sides:
+
+```powershell
+.\darktide.ps1 profile -Action switch -Name mod_load_order-<stamp> -Apply   # staging and game
+.\darktide.ps1 restore -Apply -BackupSet 'gamemods-<stamp>.zip'             # game folder only
+```
+
+If the deploy fails after staging was switched, it says so in those words, exits `1`, and
+prints both the command that finishes the switch (`deploy -Apply`) and the one that puts
+staging back. `save` writes straight away, since it only adds a file, but will not replace
+an existing profile without `-Force`. `list` and `show` never write.
+
+The load-order backups live under the profiles folder rather than `BackupRoot` on purpose:
+`rollback` treats every folder in `BackupRoot` as a staging backup set and picks the newest
+by name, so a `loadorder` folder there would be chosen ahead of your real backups.
+
+---
+
 ## Re-running is safe
 
 Every verb is idempotent: running it twice does the same thing as running it once.
@@ -496,6 +551,9 @@ Every verb is idempotent: running it twice does the same thing as running it onc
 - Staging, deploy, and loader backups are each pruned to the newest `-KeepBackups`
   (default 10), so repeated runs cannot fill the disk. Loader folders and bundle database
   copies are counted separately.
+- `profile -Action switch` to the profile staging already uses rewrites nothing and takes
+  no load-order backup. Its deploy still runs, and has nothing to copy unless the game
+  folder had drifted from staging, in which case it backs up and resyncs like any deploy.
 
 ---
 
@@ -1132,6 +1190,7 @@ What it covers:
 | `tests/ErrorBlame.Tests.ps1` | The `errors` verb against synthetic console logs: ranking and counts, a path fragment, a DMF tag carrying the display name, a folder name with brackets, DMF not blamed for a hook, newest log by write time, `-Last`, tail-only reading, a missing folder, an empty log, the no-mod-lines hint, redaction of the profile path and user name (before truncation), the 200-character cut, `-OutFile` json/md with `-Force`, and nothing written anywhere else. |
 | `tests/SettingsBackup.Tests.ps1` | The `settings` verb: a byte-identical backup; an unchanged file not backed up twice; same-second backups numbered, not overwritten; retention; dry-run backup and restore write nothing; restore takes a pre-restore backup first; ambiguous or unmatched `-BackupSet` refused; restore refused while the game runs; a missing settings file reported with nothing written; backups refused inside the repo, staging or the game folder. |
 | `tests/ModToggle.Tests.ps1` | `enable` / `disable`: a disable-then-enable round trip is byte-identical (CRLF, comments, BOM, no final newline); dry run and `-WhatIf` write nothing; unknown names, paths, `base` and `dmf` refused with nothing written; backups taken, kept out of `BackupRoot` and pruned by `-KeepBackups`; the disabled list; and a disabled mod staying disabled through `update -NoApi -Apply`. |
+| `tests/Profiles.Tests.ps1` | The `profile` verb: save (no overwrite without `-Force`, never inside staging), list and show, invalid names refused, a switch dry run that leaves staging, game and profiles byte-identical, refusals (missing mod, path entries, game running, wrong game folder, a `GamePath` deploy would reject as a drive root or too shallow) that write nothing, load-order backup and `-KeepBackups` pruning, success and failure reported correctly whatever `$LASTEXITCODE` says, undo by backup name, a real deploy reaching the game, the already-active switch as a no-op deploy, and `delete` needing `-Apply`. |
 
 ---
 
@@ -1215,6 +1274,7 @@ goes into `$Include` in the same commit that wires it into the dispatcher.
 | `Show-ModChanges.ps1` | The `changes` verb: what the last `update -Apply` changed, per mod, read from its backup set. No writes beyond `-OutFile`. |
 | `Set-ModState.ps1` | The `enable` / `disable` verbs: switches a mod on or off in the staging `mod_load_order.txt`, with a backup. |
 | `Test-DownloadedMods.ps1` | The `intake` verb: what each archive in `DownloadDir` is and what is still to download. No key, no network, no writes. |
+| `Switch-DarktideProfile.ps1` | The `profile` verb: named variants of the staging load order, switched with a backup and a deploy. |
 | `Test-Modpack.ps1` | Repository validator, used by CI. |
 | `Invoke-Tests.ps1` | Runs the Pester suite, then the validator. |
 | `tests/` | Pester tests. Sandboxed — no game, no key, no network. |
