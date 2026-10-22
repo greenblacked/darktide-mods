@@ -506,9 +506,14 @@ function Test-StructureAt {
 
         if ($name.StartsWith('.')) {
             if ($name.StartsWith('.staging-')) {
+                # In the game it arrived by deploy, so it leaves the same way.
+                $fix = if ($Location -eq 'game') {
+                    'delete it from staging first if it is there too, then .\darktide.ps1 deploy -Apply -Mirror (which also removes anything else not in staging)'
+                } else {
+                    "safe to delete when no update is running: Remove-Item -LiteralPath $(Format-Literal $path) -Recurse -Force"
+                }
                 Add-Result INFO 'structure.leftover' "$Location has '$name', left behind by an interrupted install." `
-                    -Fix "safe to delete when no update is running: Remove-Item -LiteralPath $(Format-Literal $path) -Recurse -Force" `
-                    -Location $Location -Subject $name
+                    -Fix $fix -Location $Location -Subject $name
             }
             continue
         }
@@ -665,7 +670,8 @@ if ($lock -and -not $stagingOk) {
 
     # Load order in the lockfile against staging's.
     if ($script:LoadOrders.ContainsKey('staging') -and $lock.PSObject.Properties.Name -contains 'loadOrder') {
-        $lockOrder = @($lock.loadOrder | ForEach-Object { "$_" })
+        # A null loadOrder pipes one $null, which "$_" would turn into an entry named ''.
+        $lockOrder = @($lock.loadOrder | Where-Object { $_ } | ForEach-Object { "$_" })
         $stageOrder = @($script:LoadOrders['staging'].Enabled | ForEach-Object { $_.Name })
         $diffAt = -1
         $len = [Math]::Max($lockOrder.Count, $stageOrder.Count)
@@ -674,7 +680,10 @@ if ($lock -and -not $stagingOk) {
             $b = if ($i -lt $stageOrder.Count) { $stageOrder[$i] } else { '(end)' }
             if ($a -ne $b) { $diffAt = $i; break }
         }
-        if ($diffAt -ge 0) {
+        if ($lockOrder.Count -eq 0 -and $stageOrder.Count -gt 0) {
+            Add-Result INFO 'drift.lockorder' "the lockfile records no load order, so staging's ($($stageOrder.Count) entries) was not compared." `
+                -Fix 'to record it: .\darktide.ps1 lock'
+        } elseif ($diffAt -ge 0) {
             Add-Result INFO 'drift.lockorder' "staging load order differs from the lockfile's, first at position $($diffAt + 1): locked '$a', staged '$b'." `
                 -Fix 'if the staged order is what you want: .\darktide.ps1 lock'
         } else {

@@ -318,6 +318,15 @@ Describe 'Test-DarktideSetup.ps1 (doctor)' {
             (Get-Finding $r 'structure.nomod' -Subject 'gamma_mod').Count | Should -Be 0
         }
 
+        It 'routes a leftover .staging-* folder in the game through deploy, not a direct delete' {
+            [void][System.IO.Directory]::CreateDirectory((Join-Path $script:GameMods '.staging-alpha_mod'))
+            $r = Invoke-Doctor
+            $f = Get-Finding $r 'structure.leftover' 'INFO' 'game' '.staging-alpha_mod'
+            $f.Count | Should -Be 1
+            $f[0].fix | Should -Match 'deploy -Apply -Mirror'
+            $f[0].fix | Should -Not -Match 'Remove-Item'
+        }
+
         It 'handles a folder name with brackets' {
             $null = Add-StagedMod -Name '[x]mod'
             $r = Invoke-Doctor
@@ -359,6 +368,17 @@ Describe 'Test-DarktideSetup.ps1 (doctor)' {
             Set-Content -LiteralPath (Join-Path $script:Staging 'mod_load_order.txt') -Value @('beta_mod', 'alpha_mod') -Encoding ASCII
             $r = Invoke-Doctor
             (Get-Finding $r 'drift.lockorder' 'INFO').Count | Should -Be 1
+        }
+
+        It 'says the lockfile records no load order when loadOrder is null, instead of comparing an empty name' {
+            $j = Get-Content -LiteralPath $script:Lock -Raw | ConvertFrom-Json
+            $j.loadOrder = $null
+            $j | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $script:Lock -Encoding UTF8
+            $r = Invoke-Doctor
+            $f = Get-Finding $r 'drift.lockorder' 'INFO'
+            $f.Count | Should -Be 1
+            $f[0].message | Should -Not -Match "locked ''"
+            $f[0].message | Should -Match 'records no load order'
         }
 
         It 'reports game content that differs from staging' {
