@@ -47,15 +47,18 @@
         .\darktide.ps1 need -Path their.lock.json
                                   what you lack from a friend's lockfile, with links
         .\darktide.ps1 support    one redacted zip to attach to a bug report
+        .\darktide.ps1 doctor     why mods will not load, and whether staging matches
+                                  the lockfile (read-only; -Quick skips hashing)
 
     Everything is a dry run until you add -Apply, except 'status', 'check',
-    'links', 'patchcheck', 'diff', 'intake' and 'need' which never write
-    anything (patchcheck -Remember stores a baseline beside staging; need writes
-    only an -OutFile you ask for), 'lock' which always writes the manifest,
-    'profile -Action save', which writes one new file in the profiles folder and
-    will not replace an existing profile without -Force, and 'upgrade', which
-    shows its plan and asks before it writes (answering no writes nothing). The
-    dry-run default includes rollback, restore and 'profile -Action switch'.
+    'links', 'patchcheck', 'diff', 'intake', 'need' and 'doctor' which never
+    write anything (patchcheck -Remember stores a baseline beside staging; need
+    writes only an -OutFile you ask for), 'lock' which always writes the
+    manifest, 'profile -Action save', which writes one new file in the profiles
+    folder and will not replace an existing profile without -Force, and
+    'upgrade', which shows its plan and asks before it writes (answering no
+    writes nothing). The dry-run default includes rollback, restore and 'profile
+    -Action switch'.
 
     'enable' and 'disable' edit only the staging mod_load_order.txt. Run
     'deploy -Apply' afterwards to make the change live.
@@ -136,6 +139,10 @@
 
 .PARAMETER Reason
     With 'pin': why the mod is held, e.g. 'crashes on 1.4'. Shown when listing pins.
+
+.PARAMETER Quick
+    With 'doctor': compare staging, the lockfile and the game folder by folder
+    name only, without hashing their contents.
 
 .EXAMPLE
     .\darktide.ps1 sync
@@ -234,13 +241,18 @@
     .\darktide.ps1 support -Apply
     Writes a redacted darktide-support-<stamp>.zip to attach to a bug report.
     Without -Apply it lists what would go in. Works without a config.json.
+
+.EXAMPLE
+    .\darktide.ps1 doctor
+    Every PASS/WARN/FAIL check on config, load order, folder layout, drift and the
+    loader, with the command that fixes each problem. Works before 'init'.
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
     [ValidateSet('init', 'status', 'check', 'links', 'update', 'deploy', 'sync', 'rollback', 'restore',
-                 'lock', 'loader', 'export', 'import', 'help', 'upgrade', 'patchcheck', 'diff', 'errors', 'settings', 'changes', 'enable', 'disable', 'pin', 'intake', 'profile', 'need', 'support')]
+                 'lock', 'loader', 'export', 'import', 'help', 'upgrade', 'patchcheck', 'diff', 'errors', 'settings', 'changes', 'enable', 'disable', 'pin', 'intake', 'profile', 'need', 'support', 'doctor')]
     [string]   $Verb = 'help',
 
     [switch]   $Apply,
@@ -272,6 +284,7 @@ param(
     [string]   $Reason,
     [string]   $Action,
     [string]   $Name,
+    [switch]   $Quick,
     [string]   $ConfigPath = (Join-Path $PSScriptRoot 'config.json')
 )
 
@@ -303,8 +316,9 @@ $Intaker  = Join-Path $PSScriptRoot 'Test-DownloadedMods.ps1'
 $Profiler = Join-Path $PSScriptRoot 'Switch-DarktideProfile.ps1'
 $Gapper   = Join-Path $PSScriptRoot 'Get-LoadoutGap.ps1'
 $Supporter = Join-Path $PSScriptRoot 'New-SupportBundle.ps1'
+$Doctor   = Join-Path $PSScriptRoot 'Test-DarktideSetup.ps1'
 
-foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Upgrader, $BuildState, $Differ, $Blamer, $SettingsBackup, $Changer, $Toggler, $Pinner, $Intaker, $Profiler, $Gapper, $Supporter)) {
+foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Upgrader, $BuildState, $Differ, $Blamer, $SettingsBackup, $Changer, $Toggler, $Pinner, $Intaker, $Profiler, $Gapper, $Supporter, $Doctor)) {
     if (-not (Test-Path -LiteralPath $s)) { throw "Missing script: $s" }
 }
 
@@ -350,6 +364,16 @@ if ($Verb -eq 'diff') {
 if ($Verb -eq 'support') {
     Write-Head "Building a support bundle$(if (-not $Apply) { ' (dry run)' })"
     & $Supporter -ConfigPath $ConfigPath -OutFile $OutFile -Apply:$Apply -Force:$Force -Confirm:$false
+    return
+}
+
+# 'doctor' is what you run when setup is broken, which includes having no config
+# yet: it reports that as a FAIL and checks whatever else it can.
+if ($Verb -eq 'doctor') {
+    Write-Head 'Checking your Darktide mod setup'
+    & $Doctor -ConfigPath $ConfigPath -GamePath $GamePath -Quick:$Quick -OutFile $OutFile -Force:$Force
+    $code = if (Test-Path Variable:LASTEXITCODE) { $LASTEXITCODE } else { 0 }
+    if ($code) { exit $code }
     return
 }
 
