@@ -16,6 +16,8 @@
         .\darktide.ps1 rollback   undo the last staging install (needs -Apply)
         .\darktide.ps1 restore    undo the last deploy to the game folder (needs -Apply)
         .\darktide.ps1 lock       regenerate darktide-modpack.lock.json
+        .\darktide.ps1 lock -OutFile my-loadout.lock.json
+                                  write the lockfile somewhere else, to share it
         .\darktide.ps1 lock -SyncIdsFromMap
                                   copy Nexus ids from mods-map.json into the lockfile
         .\darktide.ps1 init       find the game automatically and write config.json
@@ -42,15 +44,17 @@
         .\darktide.ps1 intake     classify the archives in your download folder
                                   and list what is still to download
         .\darktide.ps1 profile    save, list, show, switch or delete a named load order
+        .\darktide.ps1 need -Path their.lock.json
+                                  what you lack from a friend's lockfile, with links
 
     Everything is a dry run until you add -Apply, except 'status', 'check',
-    'links', 'patchcheck', 'diff' and 'intake' which never write anything
-    (patchcheck -Remember stores a baseline beside staging), 'lock' which always
-    writes the manifest, 'profile -Action save', which writes one new file in
-    the profiles folder and will not replace an existing profile without -Force,
-    and 'upgrade', which shows its plan and asks before it writes (answering no
-    writes nothing). The dry-run default includes rollback, restore and 'profile
-    -Action switch'.
+    'links', 'patchcheck', 'diff', 'intake' and 'need' which never write
+    anything (patchcheck -Remember stores a baseline beside staging; need writes
+    only an -OutFile you ask for), 'lock' which always writes the manifest,
+    'profile -Action save', which writes one new file in the profiles folder and
+    will not replace an existing profile without -Force, and 'upgrade', which
+    shows its plan and asks before it writes (answering no writes nothing). The
+    dry-run default includes rollback, restore and 'profile -Action switch'.
 
     'enable' and 'disable' edit only the staging mod_load_order.txt. Run
     'deploy -Apply' afterwards to make the change live.
@@ -72,7 +76,9 @@
 
 .PARAMETER SyncIdsFromMap
     With 'lock': copy non-null modId/url values from mods-map.json into the
-    existing lockfile. Does not need ModsRoot or a full regenerate.
+    existing lockfile. Does not need ModsRoot or a full regenerate. With
+    -OutFile, that file is the existing lockfile to update in place, instead of
+    the repository one; it is edited without asking for -Force.
 
 .PARAMETER Action
     With 'profile': save, list, show, switch or delete. Default: list.
@@ -212,13 +218,23 @@
 .EXAMPLE
     .\darktide.ps1 profile -Action switch -Name minimal -Apply
     Make the saved profile 'minimal' the staging load order and deploy it.
+
+.EXAMPLE
+    .\darktide.ps1 lock -OutFile my-loadout.lock.json
+    Write your lockfile to a file you can send a friend. The repository lockfile is
+    left alone. Refuses to replace an existing file unless -Force is given.
+
+.EXAMPLE
+    .\darktide.ps1 need -Path .\their-loadout.lock.json -OutFile need.md
+    Compare a friend's lockfile with your staging: what you are missing, with a
+    Nexus link for each, and where it goes in their load order. Writes only need.md.
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
     [ValidateSet('init', 'status', 'check', 'links', 'update', 'deploy', 'sync', 'rollback', 'restore',
-                 'lock', 'loader', 'export', 'import', 'help', 'upgrade', 'patchcheck', 'diff', 'errors', 'settings', 'changes', 'enable', 'disable', 'pin', 'intake', 'profile')]
+                 'lock', 'loader', 'export', 'import', 'help', 'upgrade', 'patchcheck', 'diff', 'errors', 'settings', 'changes', 'enable', 'disable', 'pin', 'intake', 'profile', 'need')]
     [string]   $Verb = 'help',
 
     [switch]   $Apply,
@@ -279,8 +295,9 @@ $Toggler  = Join-Path $PSScriptRoot 'Set-ModState.ps1'
 $Pinner   = Join-Path $PSScriptRoot 'Set-ModPin.ps1'
 $Intaker  = Join-Path $PSScriptRoot 'Test-DownloadedMods.ps1'
 $Profiler = Join-Path $PSScriptRoot 'Switch-DarktideProfile.ps1'
+$Gapper   = Join-Path $PSScriptRoot 'Get-LoadoutGap.ps1'
 
-foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Upgrader, $BuildState, $Differ, $Blamer, $SettingsBackup, $Changer, $Toggler, $Pinner, $Intaker, $Profiler)) {
+foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Upgrader, $BuildState, $Differ, $Blamer, $SettingsBackup, $Changer, $Toggler, $Pinner, $Intaker, $Profiler, $Gapper)) {
     if (-not (Test-Path -LiteralPath $s)) { throw "Missing script: $s" }
 }
 
@@ -324,7 +341,9 @@ if ($Verb -eq 'diff') {
 # SyncIdsFromMap only touches the lockfile and mods-map.json - no config, no ModsRoot.
 if ($Verb -eq 'lock' -and $SyncIdsFromMap) {
     Write-Head 'Syncing lockfile Nexus ids from mods-map'
-    & $Locker -SyncIdsFromMap
+    $syncArgs = @{ SyncIdsFromMap = $true }
+    if ($OutFile) { $syncArgs['OutFile'] = $OutFile }
+    & $Locker @syncArgs
     return
 }
 
@@ -539,8 +558,20 @@ switch ($Verb) {
     }
 
     'lock' {
-        Write-Head 'Regenerating the lockfile'
-        & $Locker -ModsRoot $modsRoot
+        $lockArgs = @{ ModsRoot = $modsRoot }
+        if ($OutFile) {
+            # A share file goes wherever the caller says, and the repository lockfile
+            # is left as it is. New-ModpackLock.ps1 overwrites its -OutFile without
+            # asking, so the -Force rule is applied here.
+            if ((Test-Path -LiteralPath $OutFile) -and -not $Force) {
+                throw "'$OutFile' already exists. Pass -Force to replace it."
+            }
+            $lockArgs['OutFile'] = $OutFile
+            Write-Head "Writing the lockfile to $OutFile"
+        } else {
+            Write-Head 'Regenerating the lockfile'
+        }
+        & $Locker @lockArgs
         return
     }
 
@@ -644,6 +675,20 @@ switch ($Verb) {
         & $Profiler -ConfigPath $ConfigPath -Action $act -Name $Name -Apply:$Apply -Force:$Force -Confirm:$false
         $code = if (Test-Path Variable:LASTEXITCODE) { $LASTEXITCODE } else { 0 }
         if ($code) { exit $code }
+        return
+    }
+
+    'need' {
+        if (-not $Path) {
+            throw "Which lockfile? Pass -Path, e.g. .\darktide.ps1 need -Path '.\their-loadout.lock.json'"
+        }
+        Write-Head 'Comparing their lockfile with your staging'
+        # Reset first: the script only sets an exit code when something was dropped,
+        # so a code left by an earlier command would otherwise be passed on as this
+        # verb's result.
+        $global:LASTEXITCODE = 0
+        & $Gapper -Path $Path -ModsRoot $modsRoot -ConfigPath $ConfigPath -OutFile $OutFile -Force:$Force
+        if ($LASTEXITCODE) { exit $LASTEXITCODE }
         return
     }
 }
