@@ -20,10 +20,12 @@
         .\darktide.ps1 loader     install or update the Darktide Mod Loader
         .\darktide.ps1 export     zip your whole loadout as a personal backup
         .\darktide.ps1 import     restore a loadout zip and deploy it
+        .\darktide.ps1 intake     classify the archives in your download folder
+                                  and list what is still to download
 
-    Everything is a dry run until you add -Apply, except 'status', 'check' and
-    'links' which never write anything, and 'lock' which always writes the
-    manifest. The dry-run default includes rollback and restore.
+    Everything is a dry run until you add -Apply, except 'status', 'check',
+    'links' and 'intake' which never write anything, and 'lock' which always
+    writes the manifest. The dry-run default includes rollback and restore.
 
 .PARAMETER Verb
     Which action to run. See above.
@@ -64,13 +66,19 @@
     .\darktide.ps1 links
     Every mod and its Nexus page, so checking by hand is a list of links. No key,
     no network.
+
+.EXAMPLE
+    .\darktide.ps1 intake
+    Run after downloading, before update -Apply: what each archive in the download
+    folder is, and which lockfile mods are still missing. Exits 1 if an archive
+    carries a different Nexus id from the mod it would replace.
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
     [ValidateSet('init', 'status', 'check', 'links', 'update', 'deploy', 'sync', 'rollback', 'restore',
-                 'lock', 'loader', 'export', 'import', 'help')]
+                 'lock', 'loader', 'export', 'import', 'help', 'intake')]
     [string]   $Verb = 'help',
 
     [switch]   $Apply,
@@ -107,8 +115,9 @@ $Importer = Join-Path $PSScriptRoot 'Import-DarktideLoadout.ps1'
 $Initer   = Join-Path $PSScriptRoot 'Initialize-DarktideConfig.ps1'
 $Loaderer = Join-Path $PSScriptRoot 'Install-DarktideLoader.ps1'
 $Finder   = Join-Path $PSScriptRoot 'Find-ModUpdates.ps1'
+$Intaker  = Join-Path $PSScriptRoot 'Test-DownloadedMods.ps1'
 
-foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder)) {
+foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Intaker)) {
     if (-not (Test-Path -LiteralPath $s)) { throw "Missing script: $s" }
 }
 
@@ -332,5 +341,14 @@ switch ($Verb) {
         & $Importer -ConfigPath $ConfigPath -Path $Path -Apply:$Apply `
                     -Deploy:$alsoDeploy -Mirror:$Mirror -Force:$Force -Confirm:$false
         return
+    }
+
+    'intake' {
+        # Read-only, so no dry-run suffix and no -Apply. The exit code is the point:
+        # 1 means an archive would replace a mod with a different Nexus mod.
+        Write-Head 'Checking the download folder before update -Apply'
+        & $Intaker -ConfigPath $ConfigPath -Only $Only -Skip $Skip -OutFile $OutFile -Force:$Force
+        $code = if (Test-Path Variable:LASTEXITCODE) { $LASTEXITCODE } else { 0 }
+        exit $code
     }
 }
