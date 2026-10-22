@@ -81,7 +81,8 @@ $Include = @(
     'LICENSE',
     'Invoke-DarktideUpgrade.ps1',
     'Get-DarktideBuildState.ps1',
-    'Compare-DarktideLoadout.ps1'
+    'Compare-DarktideLoadout.ps1',
+    'Get-DarktideErrors.ps1'
 )
 
 if ($ListOnly) {
