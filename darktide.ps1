@@ -33,6 +33,7 @@
         .\darktide.ps1 diff       how two loadouts differ: lockfile, export zip,
                                   git:<rev> or current staging
         .\darktide.ps1 errors     which mod most likely caused the last crash or error
+        .\darktide.ps1 settings   back up or restore your mod settings file
 
     Everything is a dry run until you add -Apply, except 'status', 'check',
     'links', 'patchcheck' and 'diff' which never write anything (patchcheck
@@ -99,6 +100,11 @@
 .PARAMETER Last
     With 'errors': how many of the newest console logs to read. Default 1.
 
+.PARAMETER BackupSet
+    With 'rollback' or 'restore': which backup set to restore. With 'settings':
+    restore the settings backup whose name contains this text instead of taking a
+    new backup; a substring matching more than one backup is refused.
+
 .EXAMPLE
     .\darktide.ps1 sync
     Dry run of the full pipeline - shows what would be installed and deployed.
@@ -151,13 +157,18 @@
 .EXAMPLE
     .\darktide.ps1 links -Open -Only markers_aio,scoreboard
     The same list, then those two mods' Nexus pages open in the browser.
+
+.EXAMPLE
+    .\darktide.ps1 settings -Apply
+    Back up user_settings.config (your mod settings) before a big update. Skipped
+    when nothing changed since the last backup.
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
     [ValidateSet('init', 'status', 'check', 'links', 'update', 'deploy', 'sync', 'rollback', 'restore',
-                 'lock', 'loader', 'export', 'import', 'help', 'upgrade', 'patchcheck', 'diff', 'errors')]
+                 'lock', 'loader', 'export', 'import', 'help', 'upgrade', 'patchcheck', 'diff', 'errors', 'settings')]
     [string]   $Verb = 'help',
 
     [switch]   $Apply,
@@ -208,8 +219,9 @@ $Upgrader = Join-Path $PSScriptRoot 'Invoke-DarktideUpgrade.ps1'
 $BuildState = Join-Path $PSScriptRoot 'Get-DarktideBuildState.ps1'
 $Differ   = Join-Path $PSScriptRoot 'Compare-DarktideLoadout.ps1'
 $Blamer   = Join-Path $PSScriptRoot 'Get-DarktideErrors.ps1'
+$SettingsBackup = Join-Path $PSScriptRoot 'Backup-DarktideSettings.ps1'
 
-foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Upgrader, $BuildState, $Differ, $Blamer)) {
+foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Upgrader, $BuildState, $Differ, $Blamer, $SettingsBackup)) {
     if (-not (Test-Path -LiteralPath $s)) { throw "Missing script: $s" }
 }
 
@@ -263,6 +275,16 @@ if ($Verb -eq 'lock' -and $SyncIdsFromMap) {
 if ($Verb -eq 'errors') {
     Write-Head 'Reading the game console logs'
     & $Blamer -ConfigPath $ConfigPath -LogDir $LogDir -Last $Last -OutFile $OutFile -Force:$Force
+    return
+}
+
+# 'settings' protects a file that lives in the Windows profile, not in staging or the
+# game folder. config.json only supplies where backups go and an optional
+# SettingsPath, so the verb works before setup is finished.
+if ($Verb -eq 'settings') {
+    $what = if ($BackupSet) { 'Restoring your mod settings' } else { 'Backing up your mod settings' }
+    Write-Head "$what$(if (-not $Apply) { ' (dry run)' })"
+    & $SettingsBackup -ConfigPath $ConfigPath -BackupSet $BackupSet -Apply:$Apply -Confirm:$false
     return
 }
 
