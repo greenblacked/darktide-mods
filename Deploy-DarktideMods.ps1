@@ -560,6 +560,8 @@ if (-not (Test-Path -LiteralPath $toggle)) {
 }
 
 Write-Host ''
+# 'darktide.ps1 sync' treats this exact line as the success signal, because after a
+# good deploy $LASTEXITCODE still holds robocopy's 1. Keep the wording.
 if ($ok) {
     Write-Ok 'Deploy OK.'
 } else {
@@ -576,4 +578,5 @@ if ($backupZip) {
 
 Write-Host ''
 Write-Warn 'Reminder: after any Darktide patch, Steam replaces the bundle database and mods stop loading.'
-Write-Warn "Fix with:  cd `"$game`"  ;  .\toggle_darktide_mods.bat"
+Write-Warn 'Fix with:  .\darktide.ps1 loader -PatchOnly -Apply'
+Write-Warn 'Not the toggle bat: it flips state, so running it a second time turns every mod off.'
