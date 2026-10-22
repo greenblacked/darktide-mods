@@ -24,6 +24,16 @@
     'dtkit-patch --patch', never the toggle script: the toggle flips state, so running
     it twice silently disables every mod.
 
+    Before replacing an installed loader it copies the loader's own files - never
+    the game's - to loader_backups\loader-<timestamp>\ beside staging, together with
+    .darktide-loader.json so a restore can put the version record back too.
+
+    After every successful --patch the SHA-256, size and timestamp of
+    bundle\bundle_database.data are recorded in .darktide-loader.json under
+    'bundleDb'. A Steam update replaces that file, so a different hash later means
+    the patch is gone. -PatchOnly uses that to re-patch, and to do nothing when the
+    database is still the one it patched.
+
     Nothing is written without -Apply. Dry runs work with the game open; -Apply
     refuses to write while Darktide.exe is running.
 
@@ -34,15 +44,33 @@
 .PARAMETER Force
     Reinstall even when the recorded version already matches.
 
-.PARAMETER KeepBackups
-    How many loader-* backup folders to keep. Default 10. 0 keeps all.
-
 .PARAMETER SkipPatch
     Copy the files but do not run the patcher.
 
+.PARAMETER PatchOnly
+    Re-apply the bundle patch after a Steam update, using the dtkit-patch.exe that is
+    already in the game's tools folder. Downloads nothing, copies no loader files and
+    never runs the toggle. Does nothing when the bundle database still matches the
+    fingerprint recorded after the last patch. Under -Apply it copies the database to
+    loader_backups\bundledb-<timestamp>.data first. Exits 1, writing nothing, when the
+    patcher or the mod entry bundle is missing from the game folder.
+
+.PARAMETER RestoreBackup
+    Put a previous loader back from loader_backups\loader-<timestamp>. The dry run
+    lists the backups. Under -Apply it backs up the current loader, unpatches, copies
+    the backed-up loader files in, patches again and rewrites the version record.
+    Only the loader's own files are copied back, so a backup cannot roll back game
+    files a Steam update has since replaced.
+
+.PARAMETER BackupSet
+    With -RestoreBackup: part of the backup folder name to restore instead of the
+    newest. A value matching more than one backup is refused; the full folder name
+    always picks exactly that one.
+
 .PARAMETER KeepBackups
-    How many loader backup folders to keep. Older ones are pruned after a successful
-    install. Default 10; 0 keeps everything.
+    How many loader-* backup folders, and separately how many bundledb-*.data copies,
+    to keep. Older ones are pruned after a successful write. Default 10; 0 keeps
+    everything.
 
 .PARAMETER PatcherPath
     Override the dtkit-patch executable. Used by the tests.
@@ -54,6 +82,15 @@
 .EXAMPLE
     .\Install-DarktideLoader.ps1 -Apply
     Installs or updates the loader and patches the bundle database.
+
+.EXAMPLE
+    .\Install-DarktideLoader.ps1 -PatchOnly -Apply
+    After a Darktide update: re-patch the bundle database with the loader already
+    in the game folder.
+
+.EXAMPLE
+    .\Install-DarktideLoader.ps1 -RestoreBackup -BackupSet 20261021
+    Lists the loader backups and shows which one would be put back.
 #>
 
 [CmdletBinding(SupportsShouldProcess = $true)]
@@ -66,6 +103,9 @@ param(
     [switch] $Apply,
     [switch] $Force,
     [switch] $SkipPatch,
+    [switch] $PatchOnly,
+    [switch] $RestoreBackup,
+    [string] $BackupSet,
 
     [ValidateRange(0, 1000)]
     [int] $KeepBackups = 10
@@ -87,6 +127,11 @@ function Write-Err  { param([string]$m) Write-Host $m -ForegroundColor Red }
 $script:LoaderModId  = 19
 $script:StateFile    = '.darktide-loader.json'
 $script:LoaderItems  = @('binaries', 'bundle', 'tools', 'toggle_darktide_mods.bat')
+$script:PatcherRel   = 'tools\dtkit-patch.exe'
+$script:BundleDbRel  = 'bundle\bundle_database.data'
+# The loader's mod entry bundle. The game ships its own <hash>.patch_00x bundles in
+# the same folder, so anything that acts on the game side matches patch_999 only.
+$script:EntryBundle  = '*.patch_999'
 
 function Get-LoaderVersionFromName {
     <#
@@ -255,6 +300,243 @@ function Invoke-Patcher {
     return [pscustomobject]@{ ExitCode = $code; Output = $output.Trim() }
 }
 
+function Get-LoaderOwnedFiles {
+    <#
+        Relative paths of the files the loader itself puts into a game folder, found
+        under $Root (a game folder or a loader backup). Deliberately a short explicit
+        list: binaries\ and bundle\ also hold the game's own files - Darktide.exe,
+        bundle_database.data and the game's own *.patch_00x bundles - and a backup
+        or restore that swept those up would roll the game back behind Steam's back.
+    #>
+    param([Parameter(Mandatory)] [string] $Root)
+
+    $rel = New-Object System.Collections.Generic.List[string]
+
+    $modLoader = Join-Path $Root 'binaries\mod_loader'
+    if (Test-Path -LiteralPath $modLoader -PathType Leaf) {
+        $rel.Add('binaries\mod_loader')
+    } elseif (Test-Path -LiteralPath $modLoader -PathType Container) {
+        $prefix = (Get-Item -LiteralPath $modLoader).FullName
+        foreach ($f in @(Get-ChildItem -LiteralPath $modLoader -Recurse -File)) {
+            $tail = $f.FullName.Substring($prefix.Length).TrimStart('\', '/') -replace '/', '\'
+            $rel.Add("binaries\mod_loader\$tail")
+        }
+    }
+
+    foreach ($f in @(Get-ChildItem -LiteralPath (Join-Path $Root 'bundle') -Filter $script:EntryBundle -File -ErrorAction SilentlyContinue)) {
+        $rel.Add("bundle\$($f.Name)")
+    }
+
+    foreach ($r in @($script:PatcherRel, 'toggle_darktide_mods.bat')) {
+        if (Test-Path -LiteralPath (Join-Path $Root $r) -PathType Leaf) { $rel.Add($r) }
+    }
+
+    return $rel.ToArray()
+}
+
+function Get-LoaderBackupRoot {
+    <#
+        Loader backups sit beside the mod and deploy backups, not inside the Steam
+        library where a game verify could sweep them up.
+    #>
+    param([string] $ModsRoot, [Parameter(Mandatory)] [string] $GameFolder)
+    $base = if ($ModsRoot) { Split-Path -Parent $ModsRoot } else { Split-Path -Parent $GameFolder }
+    return (Join-Path $base 'loader_backups')
+}
+
+function Get-BackupOrderKey {
+    <#
+        Sort key for '<prefix>-<yyyyMMdd-HHmmss>[-n][.data]' names: the stamp, then n
+        as a number, so '-10' sorts after '-9'. Names in any other shape sort oldest.
+    #>
+    param([string] $Name)
+    $m = [regex]::Match($Name, '^[A-Za-z]+-(\d{8}-\d{6})(?:-(\d+))?(?:\.data)?$')
+    if (-not $m.Success) { return '' }
+    $n = if ($m.Groups[2].Success) { $m.Groups[2].Value } else { '0' }
+    return "$($m.Groups[1].Value)-$($n.PadLeft(10, '0'))"
+}
+
+function New-StampedPath {
+    <#
+        <Directory>\<Prefix>-<timestamp><Suffix>. When that second is already taken,
+        numbered one past the highest number used for it - never into a gap left by
+        pruning, which would make the newest backup look like the oldest of its second.
+    #>
+    param(
+        [Parameter(Mandatory)] [string] $Directory,
+        [Parameter(Mandatory)] [string] $Prefix,
+        [string] $Suffix = ''
+    )
+    $base  = "$Prefix-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+    $taken = @(Get-ChildItem -LiteralPath $Directory -ErrorAction SilentlyContinue |
+               Where-Object { $_.Name.StartsWith($base, [StringComparison]::OrdinalIgnoreCase) })
+    if ($taken.Count -eq 0) { return (Join-Path $Directory "$base$Suffix") }
+
+    $max = 0
+    foreach ($t in $taken) {
+        $m = [regex]::Match($t.Name.Substring($base.Length), '^-(\d{1,9})(?:\.|$)')
+        if ($m.Success -and [int]$m.Groups[1].Value -gt $max) { $max = [int]$m.Groups[1].Value }
+    }
+    return (Join-Path $Directory "$base-$($max + 1)$Suffix")
+}
+
+function Copy-LoaderFile {
+    param([Parameter(Mandatory)] [string] $From, [Parameter(Mandatory)] [string] $To)
+    $parent = Split-Path -Parent $To
+    if ($parent) { [void][System.IO.Directory]::CreateDirectory($parent) }
+    Copy-Item -LiteralPath $From -Destination $To -Force
+}
+
+function New-LoaderBackup {
+    <#
+        Copies the installed loader's files, plus the state file, into a new
+        loader-<timestamp> folder. Returns its path, or $null when there is no
+        loader to back up. A failed copy throws, so nothing is replaced unbacked.
+    #>
+    param(
+        [Parameter(Mandatory)] [string] $GameFolder,
+        [Parameter(Mandatory)] [string] $BackupRoot
+    )
+
+    $files    = @(Get-LoaderOwnedFiles -Root $GameFolder)
+    $stateSrc = Join-Path $GameFolder $script:StateFile
+    $hasState = Test-Path -LiteralPath $stateSrc -PathType Leaf
+    if ($files.Count -eq 0 -and -not $hasState) { return $null }
+
+    [void][System.IO.Directory]::CreateDirectory($BackupRoot)
+    $dir = New-StampedPath -Directory $BackupRoot -Prefix 'loader'
+    [void][System.IO.Directory]::CreateDirectory($dir)
+
+    foreach ($rel in $files) {
+        Copy-LoaderFile -From (Join-Path $GameFolder $rel) -To (Join-Path $dir $rel)
+    }
+    if ($hasState) { Copy-LoaderFile -From $stateSrc -To (Join-Path $dir $script:StateFile) }
+    return $dir
+}
+
+function Get-LoaderBackupSets {
+    <#
+        loader-<timestamp> folders, newest first. Ordered by the stamp in the name
+        rather than a timestamp attribute, which copying a folder can change.
+    #>
+    param([Parameter(Mandatory)] [string] $BackupRoot)
+    if (-not (Test-Path -LiteralPath $BackupRoot -PathType Container)) { return @() }
+    return @(Get-ChildItem -LiteralPath $BackupRoot -Directory |
+              Where-Object { $_.Name -like 'loader-*' } |
+              Sort-Object -Property @{ Expression = { Get-BackupOrderKey -Name $_.Name } }, Name -Descending)
+}
+
+function Remove-StaleLoaderBackups {
+    <#
+        Bounds both kinds of loader backup by -KeepBackups, each counted on its own:
+        loader-* folders and bundledb-*.data copies of the bundle database.
+    #>
+    param([Parameter(Mandatory)] [string] $BackupRoot, [int] $Keep)
+
+    if ($Keep -le 0 -or -not (Test-Path -LiteralPath $BackupRoot -PathType Container)) { return }
+
+    foreach ($old in @(Get-LoaderBackupSets -BackupRoot $BackupRoot | Select-Object -Skip $Keep)) {
+        Remove-Item -LiteralPath $old.FullName -Recurse -Force
+        Write-Host "  pruned old loader backup: $($old.Name)"
+    }
+
+    # Copy-Item keeps the database's own timestamp on the copy, so the name is the
+    # only record of when the copy was made.
+    $dbCopies = @(Get-ChildItem -LiteralPath $BackupRoot -File -Filter 'bundledb-*.data' |
+                  Sort-Object -Property @{ Expression = { Get-BackupOrderKey -Name $_.Name } }, Name -Descending |
+                  Select-Object -Skip $Keep)
+    foreach ($old in $dbCopies) {
+        Remove-Item -LiteralPath $old.FullName -Force
+        Write-Host "  pruned old bundle database copy: $($old.Name)"
+    }
+}
+
+function Get-BundleDbFingerprint {
+    <#
+        What 'bundleDb' in .darktide-loader.json holds. Other tools read these
+        field names; keep them.
+    #>
+    param([Parameter(Mandatory)] [string] $GameFolder)
+
+    $path = Join-Path $GameFolder $script:BundleDbRel
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $null }
+    $item = Get-Item -LiteralPath $path
+    return [ordered]@{
+        sha256           = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+        length           = [long]$item.Length
+        lastWriteTimeUtc = $item.LastWriteTimeUtc.ToString('o')
+        recordedAt       = (Get-Date).ToUniversalTime().ToString('o')
+    }
+}
+
+function Get-RecordedBundleHash {
+    <# The sha256 recorded after the last patch, or $null. State files written before
+       the fingerprint existed have no bundleDb at all. #>
+    param($State)
+
+    if (-not $State) { return $null }
+    if ($State.PSObject.Properties.Name -notcontains 'bundleDb') { return $null }
+    $db = $State.bundleDb
+    if (-not $db -or $db.PSObject.Properties.Name -notcontains 'sha256' -or -not $db.sha256) { return $null }
+    return "$($db.sha256)"
+}
+
+function Save-LoaderState {
+    <#
+        Rewrites .darktide-loader.json from the existing record plus $Set, so fields
+        written by other tools survive. $Remove drops keys that would now be wrong.
+    #>
+    param(
+        [Parameter(Mandatory)] [string] $GameFolder,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $Set,
+        [string[]] $Remove = @()
+    )
+
+    $merged   = [ordered]@{}
+    $existing = Get-InstalledLoaderState -GameFolder $GameFolder
+    if ($existing -is [System.Management.Automation.PSCustomObject]) {
+        foreach ($p in $existing.PSObject.Properties) { $merged[$p.Name] = $p.Value }
+    }
+    foreach ($k in $Remove) { if ($merged.Contains($k)) { $merged.Remove($k) } }
+    foreach ($k in @($Set.Keys)) { $merged[$k] = $Set[$k] }
+
+    $merged | ConvertTo-Json -Depth 10 |
+        Set-Content -LiteralPath (Join-Path $GameFolder $script:StateFile) -Encoding UTF8
+}
+
+function Get-MissingLoaderFiles {
+    <# What -PatchOnly needs in the game folder before it can patch. #>
+    param([Parameter(Mandatory)] [string] $GameFolder)
+
+    $missing = New-Object System.Collections.Generic.List[string]
+    if (-not (Test-Path -LiteralPath (Join-Path $GameFolder $script:PatcherRel) -PathType Leaf)) {
+        $missing.Add($script:PatcherRel)
+    }
+    $entry = @(Get-ChildItem -LiteralPath (Join-Path $GameFolder 'bundle') -Filter $script:EntryBundle -File -ErrorAction SilentlyContinue)
+    if ($entry.Count -eq 0) { $missing.Add("bundle\$($script:EntryBundle) (the mod entry bundle)") }
+    return $missing.ToArray()
+}
+
+function Select-LoaderBackupSet {
+    <# Newest by default; otherwise exactly one folder whose name contains $BackupSet. #>
+    param([Parameter(Mandatory)] [object[]] $Sets, [string] $BackupSet)
+
+    if (-not $BackupSet) { return $Sets[0] }
+
+    # A full folder name is unambiguous even when it is also a prefix of a later
+    # same-second backup (loader-<stamp> vs loader-<stamp>-1).
+    $exact = @($Sets | Where-Object { $_.Name -eq $BackupSet })
+    if ($exact.Count -eq 1) { return $exact[0] }
+
+    # IndexOf, not -like: a value with [ or ] in it is text, not a wildcard.
+    $hits = @($Sets | Where-Object { $_.Name.IndexOf($BackupSet, [StringComparison]::OrdinalIgnoreCase) -ge 0 })
+    if ($hits.Count -eq 0) { throw "No loader backup matches '$BackupSet'." }
+    if ($hits.Count -gt 1) {
+        throw "'$BackupSet' matches $($hits.Count) loader backups ($(@($hits | ForEach-Object { $_.Name }) -join ', ')). Give more of the name."
+    }
+    return $hits[0]
+}
+
 # ---- Resolve config ----------------------------------------------------------------
 
 $cfg = @{ ModsRoot = ''; GamePath = ''; LoaderSource = ''; DownloadDir = '' }
@@ -281,6 +563,201 @@ $marker = @('binaries\Darktide.exe', 'binaries_dx12\Darktide.exe', 'bundle\bundl
           Where-Object { Test-Path -LiteralPath (Join-Path $game $_) }
 if (-not $marker) {
     throw "'$game' does not look like a Darktide install. Refusing to write loader files there."
+}
+
+# ---- Modes that work from what is already installed ---------------------------------
+
+if ($PatchOnly -and $RestoreBackup) { throw 'Pass -PatchOnly or -RestoreBackup, not both.' }
+if ($BackupSet -and -not $RestoreBackup) {
+    throw '-BackupSet picks the loader backup for -RestoreBackup and does nothing without it.'
+}
+if ($PatchOnly -or $RestoreBackup) {
+    $modeName = if ($PatchOnly) { '-PatchOnly' } else { '-RestoreBackup' }
+    if ($Source)    { throw "$modeName works from the game folder and the loader backups; -Source does not apply." }
+    if ($SkipPatch) { throw "$modeName ends by patching the bundle database; -SkipPatch contradicts it." }
+    if ($Force)     { throw "$modeName has nothing to force. To reinstall the loader from its download, drop $modeName." }
+}
+
+$backupRoot = Get-LoaderBackupRoot -ModsRoot $cfg.ModsRoot -GameFolder $game
+$modeLine   = if ($Apply) { 'APPLY' } else { 'DRY RUN (pass -Apply to write)' }
+
+if ($PatchOnly) {
+    Write-Step '=== Darktide Mod Loader: re-patch ==='
+    Write-Host "Game : $game"
+    Write-Host "Mode : $modeLine"
+    Write-Host ''
+
+    # Checked before anything else, and before the dry-run exit, so a dry run already
+    # tells you this cannot work.
+    $missing = @(Get-MissingLoaderFiles -GameFolder $game)
+    if ($PatcherPath -and -not (Test-Path -LiteralPath $PatcherPath -PathType Leaf)) {
+        $missing += "patcher override '$PatcherPath'"
+    }
+    if ($missing.Count -gt 0) {
+        foreach ($m in $missing) { Write-Err "  missing: $m" }
+        Write-Err 'loader files missing: run .\darktide.ps1 loader -Apply -Force'
+        exit 1
+    }
+
+    $current = Get-BundleDbFingerprint -GameFolder $game
+    if (-not $current) {
+        throw "No $($script:BundleDbRel) in '$game'. Verify the game files in Steam, then re-run."
+    }
+    $recorded = Get-RecordedBundleHash -State (Get-InstalledLoaderState -GameFolder $game)
+
+    Write-Host "Bundle database : $($current.length) bytes, last written $($current.lastWriteTimeUtc)"
+    Write-Host "  sha256 now    : $($current.sha256)"
+    Write-Host "  after patching: $(if ($recorded) { $recorded } else { 'not recorded' })"
+    Write-Host ''
+
+    if ($recorded -and $recorded -eq $current.sha256) {
+        Write-Ok 'Already patched: the bundle database is the one recorded after the last patch. Nothing to do.'
+        exit 0
+    }
+    if ($recorded) {
+        Write-Warn 'The bundle database changed since the last patch - a game update replaced it.'
+    } else {
+        Write-Warn 'No patched fingerprint on record (installed before this was tracked) - patching to record one.'
+    }
+
+    $patcher = if ($PatcherPath) { $PatcherPath } else { Join-Path $game $script:PatcherRel }
+
+    Write-Step 'Plan'
+    Write-Host "  copy $($script:BundleDbRel) -> $(Join-Path $backupRoot 'bundledb-<timestamp>.data')"
+    Write-Host "  run  $patcher --patch   (explicit; never the toggle)"
+    Write-Host "  record the patched fingerprint in $($script:StateFile)"
+    Write-Host ''
+
+    if (-not $Apply) {
+        Write-Warn 'Dry run complete. Nothing was written. Re-run with -Apply.'
+        return
+    }
+
+    $running = Get-Process -Name 'Darktide' -ErrorAction SilentlyContinue
+    if ($running) { throw "Darktide.exe is running (PID $($running.Id -join ', ')). Close the game first." }
+
+    if (-not $PSCmdlet.ShouldProcess($game, 'Re-apply the mod loader bundle patch')) { return }
+
+    [void][System.IO.Directory]::CreateDirectory($backupRoot)
+    $dbCopy = New-StampedPath -Directory $backupRoot -Prefix 'bundledb' -Suffix '.data'
+    Copy-Item -LiteralPath (Join-Path $game $script:BundleDbRel) -Destination $dbCopy -Force
+    Write-Ok "Backed up the bundle database -> $dbCopy"
+    Remove-StaleLoaderBackups -BackupRoot $backupRoot -Keep $KeepBackups
+
+    Write-Step 'Patching the bundle database...'
+    $r = Invoke-Patcher -Exe $patcher -Action 'patch' -GameFolder $game
+    Write-Ok '  patched'
+    if ($r.Output) { Write-Verbose $r.Output }
+
+    Save-LoaderState -GameFolder $game -Set ([ordered]@{
+        patched  = $true
+        bundleDb = (Get-BundleDbFingerprint -GameFolder $game)
+    })
+    Write-Ok "Recorded the patched bundle fingerprint in $($script:StateFile)."
+    exit 0
+}
+
+if ($RestoreBackup) {
+    Write-Step '=== Darktide Mod Loader: restore a backup ==='
+    Write-Host "Game    : $game"
+    Write-Host "Backups : $backupRoot"
+    Write-Host "Mode    : $modeLine"
+    Write-Host ''
+
+    $sets = @(Get-LoaderBackupSets -BackupRoot $backupRoot)
+    if ($sets.Count -eq 0) {
+        throw "No loader backups in '$backupRoot'. One is made each time 'loader -Apply' replaces an installed loader."
+    }
+
+    Write-Step 'Loader backups (newest first)'
+    foreach ($s in $sets) {
+        $st = Get-InstalledLoaderState -GameFolder $s.FullName
+        $v  = if ($st -and $st.PSObject.Properties.Name -contains 'version' -and $st.version) { "$($st.version)" } else { 'version not recorded' }
+        Write-Host "  $($s.Name)   $v"
+    }
+    Write-Host ''
+
+    $chosen   = Select-LoaderBackupSet -Sets $sets -BackupSet $BackupSet
+    $setFiles = @(Get-LoaderOwnedFiles -Root $chosen.FullName)
+    $hasPatcher = $setFiles -contains $script:PatcherRel
+    $hasEntry   = @($setFiles | Where-Object { $_ -like "bundle\$($script:EntryBundle)" }).Count -gt 0
+    if (-not $hasPatcher -or -not $hasEntry) {
+        throw "'$($chosen.Name)' does not hold a complete loader (needs $($script:PatcherRel) and bundle\$($script:EntryBundle)). Pick another with -BackupSet."
+    }
+
+    $setState   = Get-InstalledLoaderState -GameFolder $chosen.FullName
+    $setVersion = if ($setState -and $setState.PSObject.Properties.Name -contains 'version' -and $setState.version) { "$($setState.version)" } else { $null }
+
+    Write-Step 'Plan'
+    Write-Host "  restore $($chosen.Name) (loader $(if ($setVersion) { $setVersion } else { 'version not recorded' }))"
+    Write-Host "  back up the current loader to $(Join-Path $backupRoot 'loader-<timestamp>')"
+    Write-Host '  dtkit-patch --unpatch, copy these files back, dtkit-patch --patch:'
+    foreach ($rel in $setFiles) { Write-Host "    $rel" }
+    Write-Host ''
+
+    if (-not $Apply) {
+        Write-Warn 'Dry run complete. Nothing was written. Re-run with -Apply.'
+        return
+    }
+
+    $running = Get-Process -Name 'Darktide' -ErrorAction SilentlyContinue
+    if ($running) { throw "Darktide.exe is running (PID $($running.Id -join ', ')). Close the game first." }
+
+    if (-not $PSCmdlet.ShouldProcess($game, "Restore mod loader backup $($chosen.Name)")) { return }
+
+    $preRestore = New-LoaderBackup -GameFolder $game -BackupRoot $backupRoot
+    if ($preRestore) { Write-Ok "Backed up the current loader -> $preRestore" }
+
+    $patcher = if ($PatcherPath) { $PatcherPath } else { Join-Path $game $script:PatcherRel }
+    if (Test-Path -LiteralPath $patcher -PathType Leaf) {
+        Write-Step 'Unpatching the bundle database...'
+        # Harmless when it was not patched, so the exit code is advisory here.
+        $r = Invoke-Patcher -Exe $patcher -Action 'unpatch' -GameFolder $game -TolerateFailure
+        if ($r.ExitCode -eq 0) { Write-Ok '  unpatched' } else { Write-Warn '  was not patched (fine)' }
+    }
+
+    Write-Step "Copying $($chosen.Name) back..."
+    foreach ($rel in $setFiles) {
+        Copy-LoaderFile -From (Join-Path $chosen.FullName $rel) -To (Join-Path $game $rel)
+        Write-Ok "  $rel"
+    }
+
+    # The restored patcher, unless the caller overrode it.
+    $patcher = if ($PatcherPath) { $PatcherPath } else { Join-Path $game $script:PatcherRel }
+    Write-Step 'Patching the bundle database...'
+    $r = Invoke-Patcher -Exe $patcher -Action 'patch' -GameFolder $game
+    Write-Ok '  patched'
+    if ($r.Output) { Write-Verbose $r.Output }
+
+    # The backed-up record says which loader this is. Backups made before the record
+    # was stored with them cannot say, and a sentinel version makes the next
+    # 'loader -Apply' treat the install as out of date rather than current.
+    $set    = [ordered]@{}
+    $remove = @()
+    if ($setState -is [System.Management.Automation.PSCustomObject]) {
+        foreach ($p in $setState.PSObject.Properties) {
+            if (@('bundleDb', 'restoredFrom', 'restoredAt') -notcontains $p.Name) { $set[$p.Name] = $p.Value }
+        }
+    }
+    if (-not $setVersion) {
+        $set['version'] = 'restored-unknown'
+        $remove = @('source', 'installedAt')
+    }
+    $set['patched']      = $true
+    $set['bundleDb']     = Get-BundleDbFingerprint -GameFolder $game
+    $set['restoredFrom'] = $chosen.Name
+    $set['restoredAt']   = (Get-Date).ToString('o')
+    Save-LoaderState -GameFolder $game -Set $set -Remove $remove
+
+    # Pruned last, so a small -KeepBackups cannot delete the set before it is copied.
+    Remove-StaleLoaderBackups -BackupRoot $backupRoot -Keep $KeepBackups
+
+    Write-Host ''
+    Write-Ok "Restored loader $(if ($setVersion) { $setVersion } else { '(version not recorded)' }) from $($chosen.Name)."
+    if ($preRestore) {
+        Write-Host "Undo: .\darktide.ps1 loader -RestoreBackup -BackupSet '$(Split-Path -Leaf $preRestore)' -Apply"
+    }
+    return
 }
 
 # ---- Resolve the loader source -----------------------------------------------------
@@ -396,42 +873,12 @@ bundle\*.patch_* file inside it.
 
     # ---- Back up what is there now -------------------------------------------------
 
-    # Keep loader backups beside the mod and deploy backups, not inside the Steam
-    # library where a game verify could sweep them up.
-    $backupBase = if ($cfg.ModsRoot) { Split-Path -Parent $cfg.ModsRoot } else { Split-Path -Parent $game }
-    $backupRoot = Join-Path $backupBase 'loader_backups'
-    if ($installed) {
-        $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-        $backupDir = Join-Path $backupRoot "loader-$stamp"
-        $n = 1
-        while (Test-Path -LiteralPath $backupDir) { $backupDir = Join-Path $backupRoot "loader-$stamp-$n"; $n++ }
-        New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
-
-        foreach ($item in $script:LoaderItems) {
-            $src = Join-Path $game $item
-            if (-not (Test-Path -LiteralPath $src)) { continue }
-            if (Test-Path -LiteralPath $src -PathType Container) {
-                $eap = $ErrorActionPreference
-                $ErrorActionPreference = 'Continue'
-                try {
-                    & robocopy.exe $src (Join-Path $backupDir $item) '/E' '/NFL' '/NDL' '/NJH' '/NJS' '/NP' | Out-Null
-                    if ($LASTEXITCODE -ge 8) { throw "Backing up '$item' failed (robocopy $LASTEXITCODE). Refusing to overwrite the loader without a backup." }
-                } finally { $ErrorActionPreference = $eap }
-            } else {
-                Copy-Item -LiteralPath $src -Destination $backupDir -Force
-            }
-        }
+    # Only the loader's own files and its state record: binaries\ and bundle\ are
+    # mostly the game's, and copying them would be gigabytes per backup.
+    $backupDir = New-LoaderBackup -GameFolder $game -BackupRoot $backupRoot
+    if ($backupDir) {
         Write-Ok "Backed up the current loader -> $backupDir"
-
-        if ($KeepBackups -gt 0 -and (Test-Path -LiteralPath $backupRoot)) {
-            $stale = @(Get-ChildItem -LiteralPath $backupRoot -Directory |
-                       Where-Object { $_.Name -like 'loader-*' } |
-                       Sort-Object LastWriteTime -Descending | Select-Object -Skip $KeepBackups)
-            foreach ($old in $stale) {
-                Remove-Item -LiteralPath $old.FullName -Recurse -Force
-                Write-Host "  pruned old loader backup: $($old.Name)"
-            }
-        }
+        Remove-StaleLoaderBackups -BackupRoot $backupRoot -Keep $KeepBackups
     }
 
     # ---- Unpatch before replacing files ---------------------------------------------
@@ -496,6 +943,7 @@ bundle\*.patch_* file inside it.
 
     # ---- Re-patch --------------------------------------------------------------------
 
+    $didPatch = $false
     if (-not $SkipPatch) {
         $patcher = if ($PatcherPath) { $PatcherPath } else { Join-Path $game 'tools\dtkit-patch.exe' }
         if (Test-Path -LiteralPath $patcher) {
@@ -503,6 +951,7 @@ bundle\*.patch_* file inside it.
             $r = Invoke-Patcher -Exe $patcher -Action 'patch' -GameFolder $game
             Write-Ok '  patched'
             if ($r.Output) { Write-Verbose $r.Output }
+            $didPatch = $true
         } else {
             Write-Warn "  patcher not found at '$patcher' - run toggle_darktide_mods.bat by hand."
         }
@@ -510,14 +959,18 @@ bundle\*.patch_* file inside it.
 
     # ---- Record ----------------------------------------------------------------------
 
-    [ordered]@{
+    # Merged into the existing record so fields other tools keep there survive. The
+    # bundle fingerprint is only replaced after a patch that actually ran.
+    $record = [ordered]@{
         modId       = $script:LoaderModId
         name        = 'Darktide Mod Loader'
         version     = $newVersion
         source      = $sourceName
         installedAt = (Get-Date).ToString('o')
-        patched     = (-not $SkipPatch)
-    } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $game $script:StateFile) -Encoding UTF8
+        patched     = $didPatch
+    }
+    if ($didPatch) { $record['bundleDb'] = Get-BundleDbFingerprint -GameFolder $game }
+    Save-LoaderState -GameFolder $game -Set $record -Remove @('restoredFrom', 'restoredAt')
 
     Write-Host ''
     Write-Ok "Mod loader $(if ($newVersion) { $newVersion } else { '' }) installed."

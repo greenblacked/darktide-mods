@@ -14,6 +14,9 @@
        latest release tag is. That endpoint needs no authentication, which is the
        whole point - it is the one upstream this repo can query with no key.
 
+    With -Open it then opens those Nexus pages in your browser, which is the one
+    part of checking by hand that can be done for you without a key.
+
     It reports; it does not adjudicate. A GitHub tag and a Nexus version string are
     not guaranteed to be the same scheme for the same mod - one may be 'v2.15.0'
     while Nexus says '2.15', or the release may lag the Nexus upload entirely - so
@@ -43,6 +46,20 @@
 .PARAMETER OutFile
     Also write the list as markdown, so it can be pasted somewhere or kept open.
 
+.PARAMETER Open
+    After printing the list, open each selected mod's Nexus page in the default
+    browser. The address is always built from the lockfile's numeric modId and game
+    domain - never taken from the lockfile's free-text 'url' field, because
+    Start-Process will run a program or open a local file just as readily as a web
+    page. A page shared by two folders opens once. Mods with no modId are listed as
+    'no page'. With -CheckGitHub, only the mods whose GitHub check says 'differs'
+    are opened.
+
+.PARAMETER OpenLimit
+    The most pages -Open will launch in one go (1-100, default 10). Over the limit
+    it opens none and says how many there were, so a forgotten -Only cannot bury the
+    browser under 45 tabs.
+
 .EXAMPLE
     .\Find-ModUpdates.ps1
     Every mod and its Nexus page. No network.
@@ -50,6 +67,15 @@
 .EXAMPLE
     .\Find-ModUpdates.ps1 -CheckGitHub
     The same, plus the latest release tag for mods mapped to a GitHub repository.
+
+.EXAMPLE
+    .\Find-ModUpdates.ps1 -Open -Only markers_aio,scoreboard
+    Print the list, then open those two mods' Nexus pages in the browser.
+
+.EXAMPLE
+    .\Find-ModUpdates.ps1 -CheckGitHub -Open
+    Open only the pages of mods whose latest GitHub release differs from the
+    installed version.
 
 .NOTES
     Unauthenticated GitHub allows 60 requests an hour per address. Set GITHUB_TOKEN
@@ -65,7 +91,10 @@ param(
     [switch]   $CheckGitHub,
     [string[]] $Only,
     [string[]] $Skip,
-    [string]   $OutFile
+    [string]   $OutFile,
+    [switch]   $Open,
+    [ValidateRange(1, 100)]
+    [int]      $OpenLimit = 10
 )
 
 Set-StrictMode -Version Latest
@@ -92,6 +121,12 @@ $game = if ($lock.PSObject.Properties.Name -contains 'game' -and $lock.game) {
 } else {
     'warhammer40kdarktide'
 }
+
+# The game domain -Open puts into an address. Nexus domains are plain lowercase
+# letters and digits; anything else in the lockfile's 'game' field is not one, and
+# is never spliced into a URL that gets launched.
+$openDomain = "$game".Trim().ToLowerInvariant()
+if ($openDomain -cnotmatch '^[a-z0-9]{1,64}\z') { $openDomain = '' }
 
 $map = @{}
 if (Test-Path -LiteralPath $MapPath) {
@@ -153,6 +188,26 @@ function Get-VersionComparison {
     $tailB = ($Tag       -replace '^.*\d', '') -replace '[^A-Za-z0-9]', ''
     if ($tailA -ne $tailB) { return 'differs' }
     return 'same'
+}
+
+function Get-OpenablePage {
+    <#
+        The Nexus page -Open may launch for one mod, or '' when there is none.
+
+        Built only from the numeric modId and a validated game domain. The lockfile's
+        'url' is free text, and Start-Process hands its argument to the shell, which
+        will start an executable or open a file:// path as happily as a web page.
+        The id is re-emitted from the parsed number, so '0447' and ' 447 ' both come
+        out as 447 and nothing but digits reaches the address.
+    #>
+    param($ModId, [string] $Domain)
+
+    if (-not $Domain) { return '' }
+    $idText = "$ModId".Trim()
+    if ($idText -notmatch '^[0-9]{1,9}\z') { return '' }
+    $id = [int64]$idText
+    if ($id -le 0) { return '' }
+    return "https://www.nexusmods.com/$Domain/mods/$id"
 }
 
 function Get-LatestGitHubTag {
@@ -235,6 +290,7 @@ foreach ($mod in ($mods | Sort-Object folder)) {
         GitHub    = $tag
         Status    = $status
         Page      = $url
+        OpenPage  = (Get-OpenablePage -ModId $modId -Domain $openDomain)
     })
 }
 
@@ -289,4 +345,74 @@ if ($OutFile) {
     Set-Content -LiteralPath $OutFile -Value $lines -Encoding UTF8
     Write-Info ''
     Write-Info "Wrote $OutFile"
+}
+
+if (-not $Open) {
+    if ($PSBoundParameters.ContainsKey('OpenLimit')) {
+        Write-Warn '-OpenLimit does nothing without -Open.'
+    }
+    return
+}
+
+# ---- -Open: launch the pages, after everything above has been printed ---------------
+
+Write-Info ''
+Write-Info 'Opening pages:'
+
+if (-not $openDomain) {
+    Write-Warn "  Not opening anything: the lockfile's game '$game' is not a Nexus game domain."
+    exit 1
+}
+
+$toOpen  = New-Object System.Collections.Generic.List[object]
+$seen    = New-Object 'System.Collections.Generic.HashSet[string]'
+$notDiff = 0
+foreach ($row in $rows) {
+    # With -CheckGitHub the point is to open only what GitHub says has moved. A mod
+    # with no repository mapped, or one the check could not read, has no such claim.
+    if ($CheckGitHub -and $row.Status -ne 'differs') { $notDiff++; continue }
+    if (-not $row.OpenPage) {
+        Write-Warn "  $($row.Mod.PadRight(34)) no page"
+        continue
+    }
+    if (-not $seen.Add($row.OpenPage)) {
+        Write-Info "  $($row.Mod.PadRight(34)) same page as above, not opened twice"
+        continue
+    }
+    $toOpen.Add($row)
+}
+
+if ($CheckGitHub -and $notDiff -gt 0) {
+    Write-Info "  $notDiff mod(s) left closed: their GitHub check did not say 'differs'."
+}
+
+if ($toOpen.Count -eq 0) {
+    Write-Info '  Nothing to open.'
+    return
+}
+
+if ($toOpen.Count -gt $OpenLimit) {
+    Write-Warn "  $($toOpen.Count) pages; narrow with -Only or raise -OpenLimit (now $OpenLimit). Opened none."
+    exit 1
+}
+
+$failed = 0
+foreach ($row in $toOpen) {
+    # Belt and braces: whatever happens to the code above, nothing but a Nexus mod
+    # page on https reaches the shell.
+    if ($row.OpenPage -cnotmatch '^https://www\.nexusmods\.com/[a-z0-9]{1,64}/mods/[1-9][0-9]{0,8}\z') {
+        throw "Refusing to open '$($row.OpenPage)' for $($row.Mod): not a Nexus mod page."
+    }
+    Write-Info "  $($row.Mod.PadRight(34)) $($row.OpenPage)"
+    try {
+        Start-Process -FilePath $row.OpenPage
+    } catch {
+        $failed++
+        Write-Warn "  $($row.Mod.PadRight(34)) could not open: $($_.Exception.Message)"
+    }
+}
+
+if ($failed -gt 0) {
+    Write-Warn "$failed of $($toOpen.Count) page(s) did not open. The addresses are listed above."
+    exit 1
 }
