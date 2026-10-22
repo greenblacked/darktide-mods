@@ -135,7 +135,10 @@ function Read-ExistingLock {
     try {
         $raw = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
         if (-not $raw -or -not $raw.Trim()) { return $null }
-        return ($raw | ConvertFrom-Json)
+        $parsed = $raw | ConvertFrom-Json
+        # Valid JSON that is not an object ("", 42, []) is as unusable as malformed JSON.
+        if ($parsed -isnot [System.Management.Automation.PSCustomObject]) { throw 'it is not a JSON object' }
+        return $parsed
     } catch {
         Write-Host "Existing lockfile '$Path' could not be read ($($_.Exception.Message)). It will be replaced; no change summary." -ForegroundColor Yellow
         return $null

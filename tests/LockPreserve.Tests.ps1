@@ -130,6 +130,17 @@ Describe 'New-ModpackLock over an existing lockfile' {
             $lock.name     | Should -Be 'Darktide loadout'
             $lock.modCount | Should -Be 3
         }
+
+        It 'replaces a lockfile that is valid JSON but not an object, and says so' {
+            foreach ($content in @('""', '"text"', '42', '[]')) {
+                Set-Content -LiteralPath $script:Out -Value $content -Encoding UTF8
+
+                $out = & $script:Locker -ModsRoot $script:Staging -OutFile $script:Out -MapPath $script:Map -NoHash *>&1 | Out-String
+
+                $out | Should -Match 'could not be read'
+                (Read-Lock $script:Out).modCount | Should -Be 3
+            }
+        }
     }
 
     Context 'the change summary' {
