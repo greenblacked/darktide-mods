@@ -39,6 +39,12 @@ Both are dry runs until `-Apply`:
 .\darktide.ps1 deploy -Apply      # push rolled-back staging out again
 ```
 
+## After a game patch
+
+Run `.\darktide.ps1 patchcheck` before anything else. It reads only, and says whether Steam replaced the patched bundle database,
+which loader files are missing, and the exact command to run next. Exit `1` means something needs doing.
+Details: [After a Darktide patch](../README.md#after-a-darktide-patch).
+
 ## Offline and downloads
 
 No API key → offline mode. Archives in `DownloadDir` are enough for `update` / `sync`.
