@@ -301,6 +301,7 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 | `export` | Zip your whole loadout into one file, as a personal backup. |
 | `import` | Restore a loadout zip into staging and deploy it, in one step. |
 | `upgrade` | The everyday command: the `update` and `deploy` dry runs as one plan, one `Apply this plan? [y/N]`, then update, deploy and the lockfile, ending with the backup names and the commands that undo them. A no writes nothing; `-Yes` skips the question. |
+| `patchcheck` | After a game patch: whether Steam replaced the patched bundle database, which loader files are missing, and what to run next. Exits `1` when something needs doing. Read-only; `-Remember` stores a baseline beside staging. |
 
 ### Useful switches
 
@@ -320,6 +321,8 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 .\darktide.ps1 links -OutFile updates.md                   # the check-by-hand list, as markdown
 .\darktide.ps1 links -CheckGitHub                          # ...and ask GitHub for release tags
 .\darktide.ps1 upgrade -Yes                                # apply the upgrade plan without asking
+.\darktide.ps1 patchcheck -Remember                         # record this build for the next check
+.\darktide.ps1 patchcheck -OutFile patchcheck.json          # keep the full report (.json or .md)
 ```
 
 ---
@@ -639,6 +642,43 @@ folder is unmapped.
 
 ## After a Darktide patch
 
+### Check first
+
+```powershell
+.\darktide.ps1 patchcheck
+```
+
+It reads, and never writes to the game folder:
+
+- Steam's app manifest, `steamapps\appmanifest_1361210.acf`, found two levels above
+  `GamePath` with no registry lookup. If Steam is still downloading (`StateFlags` is
+  not `4`, or the target build differs from the installed one) it says so and
+  suggests nothing to apply until Steam has finished. A library laid out
+  differently can be pointed at with `Get-DarktideBuildState.ps1 -ManifestPath`.
+- The size, timestamp and SHA-256 of `bundle\bundle_database.data`, compared with
+  the fingerprint the loader records in `.darktide-loader.json` right after it
+  patches. A different hash means Steam replaced the database (an update or a file
+  verify), and it tells you to run `.\darktide.ps1 loader -PatchOnly -Apply`. An
+  older state file with no fingerprint falls back to comparing the database's
+  write time with the loader's install time, and the report says that is a guess.
+- Whether `binaries\mod_loader`, `bundle\*.patch_999`, `tools\dtkit-patch.exe` and
+  `toggle_darktide_mods.bat` are all still there. If not: `loader -Apply -Force`.
+- Which staged mods were installed before the game last updated, going by each
+  mod's `.nexus-mod.json`. That is a hint about where to look first if something
+  misbehaves. It says nothing about whether a mod still works or has an update.
+  Pinned mods show as `PINNED`; mods with no install record as `UNKNOWN`. It ends
+  with a `links -Only ...` line for the ones that predate the update.
+
+`-Remember` stores the build id and database fingerprint in
+`<parent of ModsRoot>\.darktide-gamestate.json`, so the next check can say
+`build changed since last remembered check: old -> new`. Nothing else writes that
+file. Exit code `0` means in sync or nothing certain to act on (including "Steam is
+still updating"), `1` means something needs doing. The manifest keys are what Steam
+writes today; this repository cannot check them against every Steam client, so an
+unexpected manifest is reported as a warning and the other checks still run.
+
+### Then fix it
+
 The order matters:
 
 ```powershell
@@ -782,6 +822,7 @@ What it covers:
 | `tests/FindUpdates.Tests.ps1` | The `links` list: a page for every mod with an id, a built one where the lockfile has no `url`, `no Nexus id` rather than a guess, `-Only` / `-Skip` / `-OutFile`, a malformed `githubRepo` reported and ignored, `same` vs `differs` (never “newer”), and a mocked GitHub call whose failures stay distinguishable. |
 | `tests/Attribution.Tests.ps1` | The validator's attribution checks actually fire — proven by feeding them content that must fail, so a check cannot rot into a no-op unnoticed. |
 | `tests/Package.Tests.ps1` | The release package: only allow-listed files, no mod content or config, the archive builds and its manifest matches `-ListOnly`. |
+| `tests/PatchCheck.Tests.ps1` | `patchcheck` against a fake game and Steam manifest: no baseline, in sync by matching fingerprint (uppercase hash), database replaced, Steam update pending, no manifest, missing loader files, the timestamp fallback, `-Remember` writing only the baseline beside staging, the game folder left untouched, `PREDATES-PATCH` / `OK` / `PINNED` / `UNKNOWN` classification, `-OutFile`, and exit codes through the dispatcher. |
 
 ---
 
@@ -846,6 +887,7 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser
 | `Import-DarktideLoadout.ps1` | Restores a loadout zip and deploys it. |
 | `Invoke-DarktideUpgrade.ps1` | The `upgrade` verb: runs the update and deploy dry runs, shows one plan, asks once, then calls `Update-DarktideMods.ps1`, `Deploy-DarktideMods.ps1` and `New-ModpackLock.ps1` and prints the undo commands. Writes nothing itself. |
 | `Find-ModUpdates.ps1` | The `links` verb: Nexus pages for every mod, and GitHub release tags for mods mapped to a repository. No key, no writes. |
+| `Get-DarktideBuildState.ps1` | The `patchcheck` verb: Steam build state, bundle database fingerprint vs the loader's record, missing loader files, mods installed before the last game update. No writes to the game folder. |
 | `Test-Modpack.ps1` | Repository validator, used by CI. |
 | `Invoke-Tests.ps1` | Runs the Pester suite, then the validator. |
 | `tests/` | Pester tests. Sandboxed — no game, no key, no network. |
