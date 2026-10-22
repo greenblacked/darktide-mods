@@ -308,6 +308,7 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 | `changes` | After `update -Apply`, before `deploy`: per mod, the old and new version and which files were added, removed or changed. Read-only. |
 | `disable` | Switch a mod off in the staging load order without deleting it (`-Only`). With no `-Only`, lists what is switched off. Dry run until `-Apply`. |
 | `enable` | Switch a disabled mod back on (`-Only`). Dry run until `-Apply`. |
+| `pin` | Hold mods at their current version so `update` leaves them alone, `-Force` included. Lists pins on its own; `-Only` pins, `-Unpin` releases. Dry run until `-Apply`. See [Holding a mod back](#holding-a-mod-back). |
 
 ### Useful switches
 
@@ -339,6 +340,8 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 .\darktide.ps1 settings -BackupSet 20261022 -Apply         # restore a settings backup
 .\darktide.ps1 disable -Only scoreboard,markers_aio -Apply  # switch mods off in staging
 .\darktide.ps1 enable -Only scoreboard -Apply              # ...and back on
+.\darktide.ps1 pin -Only NumericUI -Reason 'crashes on 1.4' -Apply   # hold one mod back
+.\darktide.ps1 pin -Only NumericUI -Unpin -Apply              # ...and let it update again
 ```
 
 ---
@@ -537,6 +540,7 @@ that folder's `.nexus-mod.json` (created the first time this tool installed the 
 | `OLDER` | The zip is older than staging. Skipped, so a leftover download cannot downgrade you. |
 | `NO-ARCHIVE` | That folder has no matching zip in `DownloadDir`. Not an error. |
 | `VERSION-UNKNOWN` | Renamed zip and no `info.json`. Skipped. |
+| `PINNED` | Held with `pin`. Never installed, even with `-Force`; the Action column has the command that releases it. |
 
 A first run often shows `version-tracked: 0` in `status`. Nothing has been installed *by
 this tool* yet, so there is no recorded version to compare. The first `update -Apply`
@@ -591,6 +595,33 @@ skips a mod whose name it treats as unsafe (one containing `[` or `]`, for insta
 without one falls back to its folder's last-write time, so a mod copied into staging by
 hand after the update shows as `NEW` too. A run that only added new mods replaces
 nothing and so leaves no backup set; its mods appear as `NEW` against the set before it.
+
+### Holding a mod back
+
+When an update breaks a mod and the author has not fixed it yet, roll it back and pin
+it, so the next `update` leaves it where it is:
+
+```powershell
+.\darktide.ps1 rollback -Apply                                       # put the old version back
+.\darktide.ps1 pin -Only NumericUI -Reason 'crashes on 1.4'          # dry run: shows the change
+.\darktide.ps1 pin -Only NumericUI -Reason 'crashes on 1.4' -Apply   # write it
+.\darktide.ps1 pin                                                   # list every pin
+.\darktide.ps1 pin -Only NumericUI -Unpin -Apply                     # release it
+```
+
+A pin is `"pinned": true` on the mod's entry in `mods-map.json`, plus `pinnedVersion`
+(what staging held when you pinned it, or `null` if it had no version), `pinnedReason`
+and `pinnedAt`. Unpinning sets `pinned` back to `false` and removes the other three.
+
+`update`, `sync` and `check` report a pinned mod as `PINNED`, with the unpin command in
+the Action column, and install nothing for it: not a newer zip, not a first install of
+a pinned folder that is not staged yet, and not with `-Force` either. `-Force` overrides
+version checks, not a decision to hold a mod; unpin it first.
+
+`pin` edits `mods-map.json` and nothing else. Before writing it copies the current file to
+`mods-map.json.bak`, and it keeps every other entry and key in place, so the diff is the
+pin and nothing more. A folder name that is in neither the map nor staging is refused,
+so a typo cannot pin a mod you do not have. `status` shows how many mods are pinned.
 
 ### 6. When you want to look on Nexus yourself
 
@@ -683,8 +714,9 @@ environment:
 ```
 
 `mods-map.json` maps folder names to Nexus ids. Mods that ship `info.json` are mapped
-on install; the rest need the number from the mod URL pasted in. Set `"pinned": true`
-on anything `update` should leave alone.
+on install; the rest need the number from the mod URL pasted in. To make `update` leave
+a mod alone, pin it with `.\darktide.ps1 pin -Only <folder> -Apply` rather than editing
+the flag by hand — see [Holding a mod back](#holding-a-mod-back).
 
 After editing the map, push those ids into the lockfile without regenerating it:
 
@@ -807,7 +839,8 @@ The order matters:
 
 # 5. If one mod is the culprit and has no update yet:
 .\darktide.ps1 rollback -Apply -BackupSet '<set>'
-#    then set "pinned": true on it in mods-map.json
+#    then hold it there until the author catches up:
+.\darktide.ps1 pin -Only <folder> -Reason 'crashes after the patch' -Apply
 ```
 
 Your mod **settings survive all of this** — DMF stores them in `%APPDATA%\Fatshark\Darktide\`,
@@ -1057,6 +1090,7 @@ What it covers:
 | `tests/ModChanges.Tests.ps1` | The `changes` report against a hand-built backup set: added, removed and changed files (identical ones and `.nexus-mod.json` left out), old and new versions, `UNCHANGED`, `NEW` and `REMOVED` mods, a bracketed mod name read correctly and flagged as one rollback skips, `-BackupSet` by unique substring and refusal of an ambiguous or path-shaped one, `-Only` / `-Skip`, the 50-line cap, `-OutFile` JSON and markdown with `-Force`, no file content printed, staging, backups and game folder byte-for-byte unchanged, and the verb through `darktide.ps1`. |
 | `tests/FindUpdates.Tests.ps1` | The `links` list: a page for every mod with an id, a built one where the lockfile has no `url`, `no Nexus id` rather than a guess, `-Only` / `-Skip` / `-OutFile`, a malformed `githubRepo` reported and ignored, `same` vs `differs` (never “newer”), and a mocked GitHub call whose failures stay distinguishable. |
 | `tests/OpenPages.Tests.ps1` | `links -Open` against a mocked `Start-Process`: exactly the selected pages open, built from the id; a mod with no id is `no page`; nothing opens without `-Open` or over `-OpenLimit`; a shared id opens once; with `-CheckGitHub` only `differs` opens; a hostile lockfile `url`, `modId` or `game` never reaches `Start-Process`; nothing is written. Holds up off Windows. |
+| `tests/PinHolds.Tests.ps1` | `pin` and the updater honouring it: pin/unpin round trip back to the original bytes (on the shipped `mods-map.json` too), other keys and entry order kept, dry run writes nothing, `.bak` written, unknown folders and a broken map refused; a pinned mod with a newer zip is left untouched with no backup, with and without `-Force`; a pinned folder that is not installed is not installed; `PINNED` in the CSV and the JSON report, offline and (mocked) online. |
 | `tests/Attribution.Tests.ps1` | The validator's attribution checks actually fire — proven by feeding them content that must fail, so a check cannot rot into a no-op unnoticed. |
 | `tests/Package.Tests.ps1` | The release package: only allow-listed files, no mod content or config, the archive builds and its manifest matches `-ListOnly`. |
 | `tests/PatchCheck.Tests.ps1` | `patchcheck` against a fake game and Steam manifest: no baseline, in sync by matching fingerprint (uppercase hash), database replaced, Steam update pending, no manifest, missing loader files, the timestamp fallback, `-Remember` writing only the baseline beside staging, the game folder left untouched, `PREDATES-PATCH` / `OK` / `PINNED` / `UNKNOWN` classification, `-OutFile`, and exit codes through the dispatcher. |
@@ -1138,6 +1172,7 @@ goes into `$Include` in the same commit that wires it into the dispatcher.
 | `Install-DarktideLoader.ps1` | Installs/updates the mod loader, manages the bundle patch. |
 | `Export-DarktideLoadout.ps1` | Packs your loadout into one zip (local backup). |
 | `Import-DarktideLoadout.ps1` | Restores a loadout zip and deploys it. |
+| `Set-ModPin.ps1` | The `pin` verb: lists, adds and removes version holds in `mods-map.json`. Dry run until `-Apply`; keeps a `.bak`. |
 | `Invoke-DarktideUpgrade.ps1` | The `upgrade` verb: runs the update and deploy dry runs, shows one plan, asks once, then calls `Update-DarktideMods.ps1`, `Deploy-DarktideMods.ps1` and `New-ModpackLock.ps1` and prints the undo commands. Writes nothing itself. |
 | `Find-ModUpdates.ps1` | The `links` verb: Nexus pages for every mod, and GitHub release tags for mods mapped to a repository. `-Open` opens the pages in the browser. No key, no writes. |
 | `Get-DarktideBuildState.ps1` | The `patchcheck` verb: Steam build state, bundle database fingerprint vs the loader's record, missing loader files, mods installed before the last game update. No writes to the game folder. |
@@ -1151,7 +1186,7 @@ goes into `$Include` in the same commit that wires it into the dispatcher.
 | `tests/` | Pester tests. Sandboxed — no game, no key, no network. |
 | `.claude/skills/` | Repo skills for coding agents: how to validate a change, the safety invariants, and a script that sets up a test environment from scratch. |
 | `config.example.json` | Config template. Copy to `config.json` (gitignored). |
-| `mods-map.json` | Folder → Nexus mod ID, plus `pinned` flags and an optional `githubRepo`. |
+| `mods-map.json` | Folder → Nexus mod ID, plus `pinned` flags (set them with `pin`) and an optional `githubRepo`. |
 | `darktide-modpack.lock.json` | The loadout manifest. |
 
 ---
@@ -1184,8 +1219,10 @@ Get-Content .\logs\update-*.log | Select-Object -Last 50
 Import-Csv (Get-ChildItem .\report-*.csv | Select-Object -Last 1) | Format-Table
 ```
 
-Every run writes a timestamped log to `logs\` and a CSV report next to the scripts. Both are
-gitignored; logs older than 30 days are pruned automatically.
+Every run writes a timestamped log to `logs\` and a CSV report next to the scripts, plus a
+JSON copy of the report with the same name (`report-*.json`) that also records when the
+run started, whether it was `-Apply`, offline or online, and the backup set it wrote, if
+any. All of them are gitignored; logs older than 30 days are pruned automatically.
 
 ### Verifying the tooling itself
 
