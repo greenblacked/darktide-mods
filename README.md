@@ -250,6 +250,7 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 | `lock -SyncIdsFromMap` | Copy non-null Nexus ids (and urls) from `mods-map.json` into the existing lockfile. No `ModsRoot` needed; versions and hashes stay put. |
 | `export` | Zip your whole loadout into one file, as a personal backup. |
 | `import` | Restore a loadout zip into staging and deploy it, in one step. |
+| `settings` | Back up your mod settings file (`user_settings.config`), or restore one with `-BackupSet`. Dry run until `-Apply`. Needs no config. |
 
 ### Useful switches
 
@@ -264,6 +265,8 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 .\darktide.ps1 lock -SyncIdsFromMap                        # push mods-map ids into the lockfile
 .\darktide.ps1 links -OutFile updates.md                   # the check-by-hand list, as markdown
 .\darktide.ps1 links -CheckGitHub                          # ...and ask GitHub for release tags
+.\darktide.ps1 settings -Apply                             # back up your mod settings
+.\darktide.ps1 settings -BackupSet 20261022 -Apply         # restore a settings backup
 ```
 
 ---
@@ -559,7 +562,51 @@ The order matters:
 ```
 
 Your mod **settings survive all of this** — DMF stores them in `%APPDATA%\Fatshark\Darktide\`,
-not in the mod folders.
+not in the mod folders. Nothing above backs them up, though; see the next section.
+
+---
+
+## Back up your mod settings
+
+The options you set in the mod menu (keybinds, toggles, colours) are saved in the game's settings file,
+`%APPDATA%\Fatshark\Darktide\user_settings.config`. It lives outside staging and the game
+folder, so `deploy`, `update`, `export` and the loader never touch it, and none of their
+backups include it. If a mod update resets its options, or you switch mod profiles and want
+your old options back, that file is the thing to restore.
+
+Take a copy before anything that might go wrong:
+
+- before a big update (`sync -Apply` after a Darktide patch, or updating DMF);
+- before switching mod profiles;
+- once you have the mod menu set up the way you like it.
+
+```powershell
+.\darktide.ps1 settings                      # show the file and your backups, newest first
+.\darktide.ps1 settings -Apply               # take a backup
+.\darktide.ps1 settings -BackupSet 20261022  # what restoring that backup would change
+.\darktide.ps1 settings -BackupSet 20261022 -Apply
+```
+
+- Backups go to `settings_backups\user_settings-<timestamp>.config` beside your staging
+  folder (the parent of `ModsRoot`, next to `mod_backups\`). Set `SettingsBackupDir` in
+  `config.json` to put them elsewhere; with no `config.json` they go to
+  `%LOCALAPPDATA%\darktide-mods\settings_backups\`. It refuses a folder inside this
+  repository, staging or the game folder.
+- A backup is skipped, and says so, when the file is byte-identical to the newest one.
+  Two backups in the same second are numbered (`-1`, `-2`) rather than overwriting each
+  other. The newest 10 are kept (`-KeepBackups` on the script).
+- A restore refuses to run while the game is open: Darktide rewrites this file when it
+  exits, which would undo the restore. It copies the current file to a
+  `...-prerestore.config` backup first, so a restore can itself be undone. A `-BackupSet`
+  that matches more than one backup is refused; pass more of the name.
+- The file is copied byte for byte and compared by hash. It is never parsed or merged.
+
+The location above is where the file is documented to live; this repository cannot verify
+it. If yours is somewhere else, set `SettingsPath` in `config.json`, or run the script
+directly: `.\Backup-DarktideSettings.ps1 -SettingsPath 'D:\path\user_settings.config' -Apply`.
+
+The file is personal. `.gitignore` excludes `user_settings*.config` and `settings_backups/`,
+and the release package never includes either.
 
 ---
 
@@ -576,8 +623,9 @@ This tooling deletes and replaces directories, so it is deliberately paranoid:
 - **Staged installs.** A mod is extracted to `.staging-<name>\` and only swapped in once the
   new copy is on disk. A corrupt archive can never leave you with a deleted mod.
 - **Backs up before every write** — staging installs to `mod_backups\<timestamp>\`, deploys to
-  `deploy_backups\gamemods-<timestamp>.zip`, loader updates to `loader_backups\`. Retention is
-  capped (default 10) so repeated runs cannot fill the disk.
+  `deploy_backups\gamemods-<timestamp>.zip`, loader updates to `loader_backups\`, settings
+  restores to `settings_backups\`. Retention is capped (default 10) so repeated runs cannot
+  fill the disk.
 - **Archive contents decide the target folder**, taken from the `*.mod` file inside. If that
   doesn't match the mod being updated, the install is refused rather than guessed at.
 - **Zip-slip guarded** — `../`, absolute paths, and backslash traversal are rejected, and every
@@ -674,6 +722,7 @@ What it covers:
 | `tests/FindUpdates.Tests.ps1` | The `links` list: a page for every mod with an id, a built one where the lockfile has no `url`, `no Nexus id` rather than a guess, `-Only` / `-Skip` / `-OutFile`, a malformed `githubRepo` reported and ignored, `same` vs `differs` (never “newer”), and a mocked GitHub call whose failures stay distinguishable. |
 | `tests/Attribution.Tests.ps1` | The validator's attribution checks actually fire — proven by feeding them content that must fail, so a check cannot rot into a no-op unnoticed. |
 | `tests/Package.Tests.ps1` | The release package: only allow-listed files, no mod content or config, the archive builds and its manifest matches `-ListOnly`. |
+| `tests/SettingsBackup.Tests.ps1` | The `settings` verb: a byte-identical backup; an unchanged file not backed up twice; same-second backups numbered, not overwritten; retention; dry-run backup and restore write nothing; restore takes a pre-restore backup first; ambiguous or unmatched `-BackupSet` refused; restore refused while the game runs; a missing settings file reported with nothing written; backups refused inside the repo, staging or the game folder. |
 
 ---
 
@@ -737,6 +786,7 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser
 | `Export-DarktideLoadout.ps1` | Packs your loadout into one zip (local backup). |
 | `Import-DarktideLoadout.ps1` | Restores a loadout zip and deploys it. |
 | `Find-ModUpdates.ps1` | The `links` verb: Nexus pages for every mod, and GitHub release tags for mods mapped to a repository. No key, no writes. |
+| `Backup-DarktideSettings.ps1` | The `settings` verb: backs up and restores `user_settings.config`, where your mod settings live. |
 | `Test-Modpack.ps1` | Repository validator, used by CI. |
 | `Invoke-Tests.ps1` | Runs the Pester suite, then the validator. |
 | `tests/` | Pester tests. Sandboxed — no game, no key, no network. |
