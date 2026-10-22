@@ -277,6 +277,43 @@ Describe 'New-SupportBundle' {
             $texts['environment.txt'] | Should -Match 'config\.json not found'
         }
 
+        It 'still writes the bundle when ModsRoot and GamePath sit on a drive that is not mounted' {
+            $c = Get-Content -LiteralPath $script:Config -Raw | ConvertFrom-Json
+            $c.ModsRoot = 'Q:\Darktide\mods'
+            $c.GamePath = 'Q:\Steam\steamapps\common\Warhammer 40,000 DARKTIDE'
+            $c | ConvertTo-Json | Set-Content -LiteralPath $script:Config -Encoding UTF8
+
+            $before = Get-TreeFingerprint -Path $script:Root
+            { Invoke-Bundler } | Should -Not -Throw
+            Get-TreeFingerprint -Path $script:Root | Should -Be $before
+
+            { Invoke-Bundler -Extra @{ Apply = $true; OutFile = $script:Out } } | Should -Not -Throw
+            $texts = Get-ZipTexts -Path $script:Out
+            $texts.Keys | Should -Contain 'config.redacted.json'
+            $texts.Keys | Should -Not -Contain 'staging-listing.txt'
+            $texts['environment.txt'] | Should -Match 'ModsRoot from config\.json does not exist'
+            $texts['environment.txt'] | Should -Match 'GamePath from config\.json does not exist'
+        }
+
+        It 'handles a config.json that is an empty object' {
+            Set-Content -LiteralPath $script:Config -Value '{}' -Encoding UTF8
+            { Invoke-Bundler -Extra @{ Apply = $true; OutFile = $script:Out } } | Should -Not -Throw
+            $texts = Get-ZipTexts -Path $script:Out
+            $texts['environment.txt'] | Should -Match 'ModsRoot is not set'
+        }
+
+        It 'does not call a config.json holding null "found"' {
+            Set-Content -LiteralPath $script:Config -Value 'null' -Encoding UTF8
+            Invoke-Bundler -Extra @{ Apply = $true; OutFile = $script:Out }
+            (Get-ZipTexts -Path $script:Out)['environment.txt'] | Should -Match 'holds no settings object'
+        }
+
+        It 'warns when a -RedactName is too short to redact' {
+            $out = & $script:Bundler -ConfigPath $script:Config -UpdateLogDir $script:ToolLogs -LogDir $script:ConsoleLogs `
+                -RedactName 'Jo' *>&1 | Out-String
+            $out | Should -Match "-RedactName 'Jo' is shorter than three characters"
+        }
+
         It 'never copies a config it cannot parse' {
             Set-Content -LiteralPath $script:Config -Value "{ `"ApiKey`": `"$($script:PlantedKey)`", broken" -Encoding UTF8
             Invoke-Bundler -Extra @{ Apply = $true; OutFile = $script:Out }
@@ -287,6 +324,18 @@ Describe 'New-SupportBundle' {
     }
 
     Context 'darktide.ps1 support' {
+
+        # The dispatcher does not pass -LogDir through, so the console log default
+        # comes from %APPDATA%. Point it into the sandbox so a real Darktide install
+        # on the machine running the suite is never read. The update log default
+        # (<repo>\logs) cannot be redirected this way; it is read but not asserted on.
+        BeforeEach {
+            $script:SavedAppData = $env:APPDATA
+            $env:APPDATA = Join-Path $script:Root 'appdata'
+        }
+        AfterEach {
+            $env:APPDATA = $script:SavedAppData
+        }
 
         It 'writes nothing without -Apply' {
             $before = Get-TreeFingerprint -Path $script:Root
