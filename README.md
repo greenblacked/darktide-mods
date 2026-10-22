@@ -214,13 +214,16 @@ In order, this:
 3. backs up the live game `mods\` folder to a zip;
 4. syncs staging into the game folder;
 5. re-checks that every load-order entry resolves to a real folder;
-6. refreshes `darktide-modpack.lock.json`.
+6. refreshes `darktide-modpack.lock.json`, hashing every mod folder so the lockfile can
+   still show drift, and keeping the loadout's name.
 
 If the update step fails, deploy does not run. If deploy finishes with problems, the
-lockfile is not refreshed. Either way the exit code is non-zero.
+lockfile is not refreshed. Either way the exit code is non-zero. Before the lockfile is
+replaced, one line says what changed in it: mods added, removed, and changed in version
+or content.
 
 Everything is a dry run until `-Apply`, except `lock`, which always rewrites the
-manifest. `status` and `check` never write. Running it again when nothing has changed doesnothing at all — see [Re-running is safe](#re-running-is-safe).
+manifest. `status` and `check` never write. Running it again when nothing has changed does nothing at all — see [Re-running is safe](#re-running-is-safe).
 
 ### 5. Start the game and confirm
 
@@ -246,7 +249,7 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 | `sync` | `update` then `deploy`, then refresh the lockfile. Stops if a step fails. |
 | `rollback` | Undo the last staging install. Dry run until `-Apply`. |
 | `restore` | Undo the last deploy to the game folder. Dry run until `-Apply`. |
-| `lock` | Regenerate `darktide-modpack.lock.json` from what's installed. |
+| `lock` | Regenerate `darktide-modpack.lock.json` from what's installed. Keeps the existing loadout name, and prints a one-line change summary before it overwrites. |
 | `lock -SyncIdsFromMap` | Copy non-null Nexus ids (and urls) from `mods-map.json` into the existing lockfile. No `ModsRoot` needed; versions and hashes stay put. |
 | `export` | Zip your whole loadout into one file, as a personal backup. |
 | `import` | Restore a loadout zip into staging and deploy it, in one step. |
@@ -608,7 +611,8 @@ the loadout, and you fetch each mod from its author.
 ```
 
 `contentSha256` hashes the installed folder's contents, so you can tell whether an install has
-drifted from what was locked.
+drifted from what was locked. `sync -Apply` and `lock` both hash; only `New-ModpackLock.ps1
+-NoHash` writes `null` there, and it warns when that replaces hashes the lockfile already had.
 
 The CI packaging step uses an explicit allow-list and hard-fails if anything mod-shaped ends up
 in the artifact.
@@ -670,6 +674,7 @@ What it covers:
 | `tests/Export.Tests.ps1` | The loadout archive: every mod included, forward-slash entry names so it opens on any tool, no overwrite without `-Force`, never written inside the folder it's archiving. |
 | `tests/Import.Tests.ps1` | Export → import round trip onto an empty machine, replacing an existing install without merging stale files, traversal archives refused, and restore-plus-deploy in one run. |
 | `tests/Dispatcher.Tests.ps1` | `rollback` / `restore` without `-Apply` write nothing; with `-Apply` they reach the updater and deployer; `sync` does not deploy when update fails. |
+| `tests/LockPreserve.Tests.ps1` | Regenerating over an existing lockfile keeps its name unless `-Name` is passed, prints the change summary, and warns when `-NoHash` drops hashes; `sync -Apply` refreshes the lockfile with hashes after a deploy that copied files (robocopy's exit code `1`), and does not refresh it when the deploy fails or throws. |
 | `tests/UpgradeWorkflow.Tests.ps1` | The whole upgrade, in order, through `darktide.ps1`: dry run, `update -Apply` into staging only, `deploy -Apply` to make it live, `lock`, then rollback — including the two properties that look like bugs until you know staging is the source of truth. |
 | `tests/FindUpdates.Tests.ps1` | The `links` list: a page for every mod with an id, a built one where the lockfile has no `url`, `no Nexus id` rather than a guess, `-Only` / `-Skip` / `-OutFile`, a malformed `githubRepo` reported and ignored, `same` vs `differs` (never “newer”), and a mocked GitHub call whose failures stay distinguishable. |
 | `tests/Attribution.Tests.ps1` | The validator's attribution checks actually fire — proven by feeding them content that must fail, so a check cannot rot into a no-op unnoticed. |
