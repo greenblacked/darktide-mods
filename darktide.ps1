@@ -34,6 +34,7 @@
                                   git:<rev> or current staging
         .\darktide.ps1 errors     which mod most likely caused the last crash or error
         .\darktide.ps1 settings   back up or restore your mod settings file
+        .\darktide.ps1 changes    per mod, what the last update changed (read-only)
 
     Everything is a dry run until you add -Apply, except 'status', 'check',
     'links', 'patchcheck' and 'diff' which never write anything (patchcheck
@@ -162,13 +163,18 @@
     .\darktide.ps1 settings -Apply
     Back up user_settings.config (your mod settings) before a big update. Skipped
     when nothing changed since the last backup.
+
+.EXAMPLE
+    .\darktide.ps1 changes
+    After update -Apply: old and new version of each replaced mod and which files
+    were added, removed or changed. Writes nothing. -BackupSet picks an older set.
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
     [ValidateSet('init', 'status', 'check', 'links', 'update', 'deploy', 'sync', 'rollback', 'restore',
-                 'lock', 'loader', 'export', 'import', 'help', 'upgrade', 'patchcheck', 'diff', 'errors', 'settings')]
+                 'lock', 'loader', 'export', 'import', 'help', 'upgrade', 'patchcheck', 'diff', 'errors', 'settings', 'changes')]
     [string]   $Verb = 'help',
 
     [switch]   $Apply,
@@ -220,8 +226,9 @@ $BuildState = Join-Path $PSScriptRoot 'Get-DarktideBuildState.ps1'
 $Differ   = Join-Path $PSScriptRoot 'Compare-DarktideLoadout.ps1'
 $Blamer   = Join-Path $PSScriptRoot 'Get-DarktideErrors.ps1'
 $SettingsBackup = Join-Path $PSScriptRoot 'Backup-DarktideSettings.ps1'
+$Changer  = Join-Path $PSScriptRoot 'Show-ModChanges.ps1'
 
-foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Upgrader, $BuildState, $Differ, $Blamer, $SettingsBackup)) {
+foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Upgrader, $BuildState, $Differ, $Blamer, $SettingsBackup, $Changer)) {
     if (-not (Test-Path -LiteralPath $s)) { throw "Missing script: $s" }
 }
 
@@ -521,6 +528,15 @@ switch ($Verb) {
         # Passed on so a script can branch: 1 means something needs doing.
         $code = if (Test-Path Variable:LASTEXITCODE) { $LASTEXITCODE } else { 0 }
         if ($code) { exit $code }
+        return
+    }
+
+    'changes' {
+        # Read-only: compares a staging backup set with staging. -Force only lets
+        # -OutFile overwrite an existing report.
+        Write-Head 'What the last update changed in staging'
+        & $Changer -ConfigPath $ConfigPath -BackupSet $BackupSet -Only $Only -Skip $Skip `
+                   -OutFile $OutFile -Force:$Force
         return
     }
 }
