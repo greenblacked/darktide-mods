@@ -14,16 +14,21 @@
         .\darktide.ps1 rollback   undo the last staging install (needs -Apply)
         .\darktide.ps1 restore    undo the last deploy to the game folder (needs -Apply)
         .\darktide.ps1 lock       regenerate darktide-modpack.lock.json
+        .\darktide.ps1 lock -OutFile my-loadout.lock.json
+                                  write the lockfile somewhere else, to share it
         .\darktide.ps1 lock -SyncIdsFromMap
                                   copy Nexus ids from mods-map.json into the lockfile
         .\darktide.ps1 init       find the game automatically and write config.json
         .\darktide.ps1 loader     install or update the Darktide Mod Loader
         .\darktide.ps1 export     zip your whole loadout as a personal backup
         .\darktide.ps1 import     restore a loadout zip and deploy it
+        .\darktide.ps1 need -Path their.lock.json
+                                  what you lack from a friend's lockfile, with links
 
-    Everything is a dry run until you add -Apply, except 'status', 'check' and
-    'links' which never write anything, and 'lock' which always writes the
-    manifest. The dry-run default includes rollback and restore.
+    Everything is a dry run until you add -Apply, except 'status', 'check',
+    'links' and 'need' which never write anything (beyond an -OutFile you ask
+    for), and 'lock' which always writes the manifest. The dry-run default
+    includes rollback and restore.
 
 .PARAMETER Verb
     Which action to run. See above.
@@ -64,13 +69,23 @@
     .\darktide.ps1 links
     Every mod and its Nexus page, so checking by hand is a list of links. No key,
     no network.
+
+.EXAMPLE
+    .\darktide.ps1 lock -OutFile my-loadout.lock.json
+    Write your lockfile to a file you can send a friend. The repository lockfile is
+    left alone. Refuses to replace an existing file unless -Force is given.
+
+.EXAMPLE
+    .\darktide.ps1 need -Path .\their-loadout.lock.json -OutFile need.md
+    Compare a friend's lockfile with your staging: what you are missing, with a
+    Nexus link for each, and where it goes in their load order. Writes only need.md.
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
     [ValidateSet('init', 'status', 'check', 'links', 'update', 'deploy', 'sync', 'rollback', 'restore',
-                 'lock', 'loader', 'export', 'import', 'help')]
+                 'lock', 'loader', 'export', 'import', 'help', 'need')]
     [string]   $Verb = 'help',
 
     [switch]   $Apply,
@@ -107,8 +122,9 @@ $Importer = Join-Path $PSScriptRoot 'Import-DarktideLoadout.ps1'
 $Initer   = Join-Path $PSScriptRoot 'Initialize-DarktideConfig.ps1'
 $Loaderer = Join-Path $PSScriptRoot 'Install-DarktideLoader.ps1'
 $Finder   = Join-Path $PSScriptRoot 'Find-ModUpdates.ps1'
+$Gapper   = Join-Path $PSScriptRoot 'Get-LoadoutGap.ps1'
 
-foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder)) {
+foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Gapper)) {
     if (-not (Test-Path -LiteralPath $s)) { throw "Missing script: $s" }
 }
 
@@ -137,7 +153,9 @@ if ($Verb -eq 'links') {
 # SyncIdsFromMap only touches the lockfile and mods-map.json - no config, no ModsRoot.
 if ($Verb -eq 'lock' -and $SyncIdsFromMap) {
     Write-Head 'Syncing lockfile Nexus ids from mods-map'
-    & $Locker -SyncIdsFromMap
+    $syncArgs = @{ SyncIdsFromMap = $true }
+    if ($OutFile) { $syncArgs['OutFile'] = $OutFile }
+    & $Locker @syncArgs
     return
 }
 
@@ -300,8 +318,20 @@ switch ($Verb) {
     }
 
     'lock' {
-        Write-Head 'Regenerating the lockfile'
-        & $Locker -ModsRoot $modsRoot
+        $lockArgs = @{ ModsRoot = $modsRoot }
+        if ($OutFile) {
+            # A share file goes wherever the caller says, and the repository lockfile
+            # is left as it is. New-ModpackLock.ps1 overwrites its -OutFile without
+            # asking, so the -Force rule is applied here.
+            if ((Test-Path -LiteralPath $OutFile) -and -not $Force) {
+                throw "'$OutFile' already exists. Pass -Force to replace it."
+            }
+            $lockArgs['OutFile'] = $OutFile
+            Write-Head "Writing the lockfile to $OutFile"
+        } else {
+            Write-Head 'Regenerating the lockfile'
+        }
+        & $Locker @lockArgs
         return
     }
 
@@ -331,6 +361,15 @@ switch ($Verb) {
         $alsoDeploy = if ($PSBoundParameters.ContainsKey('Deploy')) { [bool]$Deploy } else { $true }
         & $Importer -ConfigPath $ConfigPath -Path $Path -Apply:$Apply `
                     -Deploy:$alsoDeploy -Mirror:$Mirror -Force:$Force -Confirm:$false
+        return
+    }
+
+    'need' {
+        if (-not $Path) {
+            throw "Which lockfile? Pass -Path, e.g. .\darktide.ps1 need -Path '.\their-loadout.lock.json'"
+        }
+        Write-Head 'Comparing their lockfile with your staging'
+        & $Gapper -Path $Path -ModsRoot $modsRoot -ConfigPath $ConfigPath -OutFile $OutFile -Force:$Force
         return
     }
 }

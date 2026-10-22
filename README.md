@@ -250,6 +250,8 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 | `lock -SyncIdsFromMap` | Copy non-null Nexus ids (and urls) from `mods-map.json` into the existing lockfile. No `ModsRoot` needed; versions and hashes stay put. |
 | `export` | Zip your whole loadout into one file, as a personal backup. |
 | `import` | Restore a loadout zip into staging and deploy it, in one step. |
+| `lock -OutFile <file>` | Write the lockfile to `<file>` instead, to send to someone. The repository lockfile is not touched. Refuses to replace an existing file without `-Force`. |
+| `need -Path <file>` | Compare a friend's lockfile with your staging: what you are missing (with its Nexus link), what differs, and where each missing mod goes in their load order. Read-only; never downloads. |
 
 ### Useful switches
 
@@ -264,6 +266,8 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 .\darktide.ps1 lock -SyncIdsFromMap                        # push mods-map ids into the lockfile
 .\darktide.ps1 links -OutFile updates.md                   # the check-by-hand list, as markdown
 .\darktide.ps1 links -CheckGitHub                          # ...and ask GitHub for release tags
+.\darktide.ps1 lock -OutFile my-loadout.lock.json          # a lockfile to send a friend
+.\darktide.ps1 need -Path their.lock.json -OutFile need.md # what you lack, as a clickable checklist
 ```
 
 ---
@@ -346,6 +350,56 @@ Check it with `.\darktide.ps1 status`, then launch the game.
 >
 > With Nexus Premium you'd still download in the browser here; what an API key buys you is
 > `check` telling you *which* mods are outdated. See [Checking versions locally](#checking-versions-locally-step-by-step).
+
+---
+
+## Share a loadout with a friend
+
+The lockfile is a list, not a pack: folder names, versions, load order and a link to each
+author's Nexus page. It contains no mod files, so sending it to someone redistributes
+nothing. They still download every mod from its author.
+
+**You:**
+
+```powershell
+.\darktide.ps1 lock -OutFile my-loadout.lock.json
+```
+
+This writes a fresh lockfile from your staging to `my-loadout.lock.json` and leaves the
+repository's `darktide-modpack.lock.json` alone. Send that one JSON file.
+
+**Your friend:**
+
+```powershell
+.\darktide.ps1 need -Path .\my-loadout.lock.json -OutFile need.md
+```
+
+`need` sorts every mod into one of four rows:
+
+| Row | Meaning |
+|---|---|
+| `MISSING` | In the lockfile, not in your staging. Shows its Nexus page, or `no Nexus id in their lockfile` when there is nothing to link. |
+| `DIFFERENT` | You both have it, but the version or the content hash differs. A value missing on either side counts as unknown, not different. |
+| `PRESENT` | You both have it and nothing known differs. |
+| `EXTRA` | You have it and they do not. Informational. |
+
+It then prints their load order with your missing mods marked, so you can see where each
+one goes in `mod_load_order.txt`. `-OutFile need.md` writes the same thing as a checklist
+with one link per mod; `-OutFile need.json` writes it as data. Neither replaces an existing
+file without `-Force`.
+
+Download each missing mod from its page, then `.\darktide.ps1 update -Apply` and
+`.\darktide.ps1 deploy -Apply` as usual. `need` itself writes nothing but the `-OutFile`,
+never downloads, and never touches the network.
+
+A lockfile from someone else is treated as untrusted. A file over 512 KB, or one that is not
+`schemaVersion` 1, is refused. An entry whose folder name holds a path separator, `..`, a
+wildcard, a character Windows does not allow in a file name, or a reserved device name is
+dropped and reported, as is any url that is not a plain `https://www.nexusmods.com/` link
+and any `modId` that is not a whole number. Control characters in names are replaced
+before anything is printed. Folder names from the file are never used to build a path:
+your staging folder is listed once and matched by name. When anything was dropped, `need`
+lists it and exits `1`.
 
 ---
 
@@ -673,6 +727,7 @@ What it covers:
 | `tests/UpgradeWorkflow.Tests.ps1` | The whole upgrade, in order, through `darktide.ps1`: dry run, `update -Apply` into staging only, `deploy -Apply` to make it live, `lock`, then rollback — including the two properties that look like bugs until you know staging is the source of truth. |
 | `tests/FindUpdates.Tests.ps1` | The `links` list: a page for every mod with an id, a built one where the lockfile has no `url`, `no Nexus id` rather than a guess, `-Only` / `-Skip` / `-OutFile`, a malformed `githubRepo` reported and ignored, `same` vs `differs` (never “newer”), and a mocked GitHub call whose failures stay distinguishable. |
 | `tests/Attribution.Tests.ps1` | The validator's attribution checks actually fire — proven by feeding them content that must fail, so a check cannot rot into a no-op unnoticed. |
+| `tests/LoadoutNeed.Tests.ps1` | `need` against a friend's lockfile: the exact `MISSING` set and its links, `no Nexus id` when there is none, `DIFFERENT` vs unknown (including a content hash that must agree with `New-ModpackLock.ps1`), load order marking; hostile folder names, non-Nexus urls, bad ids, oversize files, wrong schema and terminal escape sequences refused or neutralised; `-OutFile` `.md` / `.json` and `-Force`; staging and the repository lockfile unchanged; the network mocked and never called; `lock -OutFile` writes the given path and leaves the repository lockfile byte-identical. |
 | `tests/Package.Tests.ps1` | The release package: only allow-listed files, no mod content or config, the archive builds and its manifest matches `-ListOnly`. |
 
 ---
@@ -736,6 +791,7 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser
 | `Install-DarktideLoader.ps1` | Installs/updates the mod loader, manages the bundle patch. |
 | `Export-DarktideLoadout.ps1` | Packs your loadout into one zip (local backup). |
 | `Import-DarktideLoadout.ps1` | Restores a loadout zip and deploys it. |
+| `Get-LoadoutGap.ps1` | The `need` verb: compares a friend's lockfile with your staging and lists what you lack, with Nexus links. No network, no writes beyond `-OutFile`. |
 | `Find-ModUpdates.ps1` | The `links` verb: Nexus pages for every mod, and GitHub release tags for mods mapped to a repository. No key, no writes. |
 | `Test-Modpack.ps1` | Repository validator, used by CI. |
 | `Invoke-Tests.ps1` | Runs the Pester suite, then the validator. |
