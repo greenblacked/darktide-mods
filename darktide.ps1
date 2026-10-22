@@ -28,12 +28,15 @@
                                   deploy + lockfile, with the undo commands at the end
         .\darktide.ps1 patchcheck after a game patch: is the loader patch still in
                                   place, and what to run next
+        .\darktide.ps1 diff       how two loadouts differ: lockfile, export zip,
+                                  git:<rev> or current staging
 
     Everything is a dry run until you add -Apply, except 'status', 'check',
-    'links' and 'patchcheck' which never write anything (patchcheck -Remember
-    stores a baseline beside staging), 'lock' which always writes the manifest,
-    and 'upgrade', which shows its plan and asks before it writes (answering no
-    writes nothing). The dry-run default includes rollback and restore.
+    'links', 'patchcheck' and 'diff' which never write anything (patchcheck
+    -Remember stores a baseline beside staging), 'lock' which always writes the
+    manifest, and 'upgrade', which shows its plan and asks before it writes
+    (answering no writes nothing). The dry-run default includes rollback and
+    restore.
 
 .PARAMETER Verb
     Which action to run. See above.
@@ -69,6 +72,14 @@
     With 'patchcheck': store the current game build and bundle database
     fingerprint as the baseline the next check compares against. The file goes
     beside the staging folder, never into the game folder.
+
+.PARAMETER Left
+    With 'diff': the baseline loadout. A lockfile, an export zip, git:<rev> or
+    current. Defaults to the repository lockfile.
+
+.PARAMETER Right
+    With 'diff': the loadout to compare with it. Same forms as -Left. Defaults to
+    current, the staging folder as it is now. Only 'current' needs config.json.
 
 .EXAMPLE
     .\darktide.ps1 sync
@@ -108,13 +119,18 @@
     .\darktide.ps1 patchcheck
     After a Fatshark patch: was the game updated since the loader was patched,
     and what to run next. Exits 1 when something needs doing. Writes nothing.
+
+.EXAMPLE
+    .\darktide.ps1 diff
+    How staging differs from the committed lockfile. Exits 0 when identical, 1 when
+    not. Add -Left git:HEAD~1 -Right git:HEAD, or a loadout zip, to compare others.
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
     [ValidateSet('init', 'status', 'check', 'links', 'update', 'deploy', 'sync', 'rollback', 'restore',
-                 'lock', 'loader', 'export', 'import', 'help', 'upgrade', 'patchcheck')]
+                 'lock', 'loader', 'export', 'import', 'help', 'upgrade', 'patchcheck', 'diff')]
     [string]   $Verb = 'help',
 
     [switch]   $Apply,
@@ -136,6 +152,8 @@ param(
     [switch]   $PatchOnly,
     [switch]   $RestoreBackup,
     [switch]   $Remember,
+    [string]   $Left,
+    [string]   $Right,
     [string]   $ConfigPath = (Join-Path $PSScriptRoot 'config.json')
 )
 
@@ -157,8 +175,9 @@ $Loaderer = Join-Path $PSScriptRoot 'Install-DarktideLoader.ps1'
 $Finder   = Join-Path $PSScriptRoot 'Find-ModUpdates.ps1'
 $Upgrader = Join-Path $PSScriptRoot 'Invoke-DarktideUpgrade.ps1'
 $BuildState = Join-Path $PSScriptRoot 'Get-DarktideBuildState.ps1'
+$Differ   = Join-Path $PSScriptRoot 'Compare-DarktideLoadout.ps1'
 
-foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Upgrader, $BuildState)) {
+foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Upgrader, $BuildState, $Differ)) {
     if (-not (Test-Path -LiteralPath $s)) { throw "Missing script: $s" }
 }
 
@@ -182,6 +201,17 @@ if ($Verb -eq 'links') {
     Write-Head 'Where to check for updates'
     & $Finder -CheckGitHub:$CheckGitHub -Only $Only -Skip $Skip -OutFile $OutFile
     return
+}
+
+# 'diff' compares lockfiles and writes nothing but an optional -OutFile. Only a
+# 'current' side needs config.json (for ModsRoot), and the script reads it only
+# then, so comparing two lockfiles, zips or git revisions works before 'init'.
+# The exit code is the answer - 0 identical, 1 different - so pass it on.
+if ($Verb -eq 'diff') {
+    Write-Head 'Comparing loadouts'
+    & $Differ -Left $Left -Right $Right -ConfigPath $ConfigPath -OutFile $OutFile -Force:$Force
+    $code = if (Test-Path Variable:LASTEXITCODE) { $LASTEXITCODE } else { 0 }
+    exit $code
 }
 
 # SyncIdsFromMap only touches the lockfile and mods-map.json - no config, no ModsRoot.

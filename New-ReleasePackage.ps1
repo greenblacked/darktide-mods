@@ -80,7 +80,8 @@ $Include = @(
     'README.md',
     'LICENSE',
     'Invoke-DarktideUpgrade.ps1',
-    'Get-DarktideBuildState.ps1'
+    'Get-DarktideBuildState.ps1',
+    'Compare-DarktideLoadout.ps1'
 )
 
 if ($ListOnly) {
