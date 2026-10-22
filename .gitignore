@@ -13,6 +13,11 @@ config.json
 .env.*
 secrets.json
 
+# Darktide's own settings file (DMF mod settings live in it) and the copies the
+# 'settings' verb takes. Personal, not this repo's to carry or ship.
+user_settings*.config
+settings_backups/
+
 # ---------------------------------------------------------------------------
 # Third-party mod content - NEVER commit this.
 # The mods in a Darktide loadout are other authors' work, published under the
@@ -33,11 +38,18 @@ logs/
 *.log
 report-*.csv
 report-offline-*.csv
+report-*.json
+report-offline-*.json
 nexus-catalog.json
 mod_backups/
 deploy_backups/
+# Mod profiles default to <parent of ModsRoot>\profiles, which is the repo root when
+# staging is the gitignored mods/ folder here. They are personal, like the backups.
+profiles/
+support/
 .staging-*/
 *.bak
+mods-map.json.tmp
 
 # ---------------------------------------------------------------------------
 # Build output

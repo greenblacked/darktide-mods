@@ -79,6 +79,18 @@ $Include = @(
     'darktide-modpack.lock.json',
     'README.md',
     'LICENSE',
+    'Invoke-DarktideUpgrade.ps1',
+    'Get-DarktideBuildState.ps1',
+    'Compare-DarktideLoadout.ps1',
+    'Get-DarktideErrors.ps1',
+    'Backup-DarktideSettings.ps1',
+    'Show-ModChanges.ps1',
+    'Set-ModState.ps1',
+    'Set-ModPin.ps1',
+    'Test-DownloadedMods.ps1',
+    'Switch-DarktideProfile.ps1',
+    'Get-LoadoutGap.ps1',
+    'New-SupportBundle.ps1',
     'Test-DarktideSetup.ps1'
 )
 
