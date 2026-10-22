@@ -250,6 +250,7 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 | `lock -SyncIdsFromMap` | Copy non-null Nexus ids (and urls) from `mods-map.json` into the existing lockfile. No `ModsRoot` needed; versions and hashes stay put. |
 | `export` | Zip your whole loadout into one file, as a personal backup. |
 | `import` | Restore a loadout zip into staging and deploy it, in one step. |
+| `pin` | Hold mods at their current version so `update` leaves them alone, `-Force` included. Lists pins on its own; `-Only` pins, `-Unpin` releases. Dry run until `-Apply`. See [Holding a mod back](#holding-a-mod-back). |
 
 ### Useful switches
 
@@ -264,6 +265,8 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 .\darktide.ps1 lock -SyncIdsFromMap                        # push mods-map ids into the lockfile
 .\darktide.ps1 links -OutFile updates.md                   # the check-by-hand list, as markdown
 .\darktide.ps1 links -CheckGitHub                          # ...and ask GitHub for release tags
+.\darktide.ps1 pin -Only NumericUI -Reason 'crashes on 1.4' -Apply   # hold one mod back
+.\darktide.ps1 pin -Only NumericUI -Unpin -Apply              # ...and let it update again
 ```
 
 ---
@@ -415,6 +418,7 @@ that folder's `.nexus-mod.json` (created the first time this tool installed the 
 | `OLDER` | The zip is older than staging. Skipped, so a leftover download cannot downgrade you. |
 | `NO-ARCHIVE` | That folder has no matching zip in `DownloadDir`. Not an error. |
 | `VERSION-UNKNOWN` | Renamed zip and no `info.json`. Skipped. |
+| `PINNED` | Held with `pin`. Never installed, even with `-Force`; the Action column has the command that releases it. |
 
 A first run often shows `version-tracked: 0` in `status`. Nothing has been installed *by
 this tool* yet, so there is no recorded version to compare. The first `update -Apply`
@@ -437,6 +441,33 @@ One folder only:
 ```
 
 `-Force` is the deliberate reinstall or downgrade. Without it, older zips stay skipped.
+
+### Holding a mod back
+
+When an update breaks a mod and the author has not fixed it yet, roll it back and pin
+it, so the next `update` leaves it where it is:
+
+```powershell
+.\darktide.ps1 rollback -Apply                                       # put the old version back
+.\darktide.ps1 pin -Only NumericUI -Reason 'crashes on 1.4'          # dry run: shows the change
+.\darktide.ps1 pin -Only NumericUI -Reason 'crashes on 1.4' -Apply   # write it
+.\darktide.ps1 pin                                                   # list every pin
+.\darktide.ps1 pin -Only NumericUI -Unpin -Apply                     # release it
+```
+
+A pin is `"pinned": true` on the mod's entry in `mods-map.json`, plus `pinnedVersion`
+(what staging held when you pinned it, or `null` if it had no version), `pinnedReason`
+and `pinnedAt`. Unpinning sets `pinned` back to `false` and removes the other three.
+
+`update`, `sync` and `check` report a pinned mod as `PINNED`, with the unpin command in
+the Action column, and install nothing for it: not a newer zip, not a first install of
+a pinned folder that is not staged yet, and not with `-Force` either. `-Force` overrides
+version checks, not a decision to hold a mod; unpin it first.
+
+`pin` edits `mods-map.json` and nothing else. Before writing it copies the current file to
+`mods-map.json.bak`, and it keeps every other entry and key in place, so the diff is the
+pin and nothing more. A folder name that is in neither the map nor staging is refused,
+so a typo cannot pin a mod you do not have. `status` shows how many mods are pinned.
 
 ### 6. When you want to look on Nexus yourself
 
@@ -508,8 +539,9 @@ environment:
 ```
 
 `mods-map.json` maps folder names to Nexus ids. Mods that ship `info.json` are mapped
-on install; the rest need the number from the mod URL pasted in. Set `"pinned": true`
-on anything `update` should leave alone.
+on install; the rest need the number from the mod URL pasted in. To make `update` leave
+a mod alone, pin it with `.\darktide.ps1 pin -Only <folder> -Apply` rather than editing
+the flag by hand — see [Holding a mod back](#holding-a-mod-back).
 
 After editing the map, push those ids into the lockfile without regenerating it:
 
@@ -555,7 +587,8 @@ The order matters:
 
 # 5. If one mod is the culprit and has no update yet:
 .\darktide.ps1 rollback -Apply -BackupSet '<set>'
-#    then set "pinned": true on it in mods-map.json
+#    then hold it there until the author catches up:
+.\darktide.ps1 pin -Only <folder> -Reason 'crashes after the patch' -Apply
 ```
 
 Your mod **settings survive all of this** — DMF stores them in `%APPDATA%\Fatshark\Darktide\`,
@@ -672,6 +705,7 @@ What it covers:
 | `tests/Dispatcher.Tests.ps1` | `rollback` / `restore` without `-Apply` write nothing; with `-Apply` they reach the updater and deployer; `sync` does not deploy when update fails. |
 | `tests/UpgradeWorkflow.Tests.ps1` | The whole upgrade, in order, through `darktide.ps1`: dry run, `update -Apply` into staging only, `deploy -Apply` to make it live, `lock`, then rollback — including the two properties that look like bugs until you know staging is the source of truth. |
 | `tests/FindUpdates.Tests.ps1` | The `links` list: a page for every mod with an id, a built one where the lockfile has no `url`, `no Nexus id` rather than a guess, `-Only` / `-Skip` / `-OutFile`, a malformed `githubRepo` reported and ignored, `same` vs `differs` (never “newer”), and a mocked GitHub call whose failures stay distinguishable. |
+| `tests/PinHolds.Tests.ps1` | `pin` and the updater honouring it: pin/unpin round trip back to the original bytes (on the shipped `mods-map.json` too), other keys and entry order kept, dry run writes nothing, `.bak` written, unknown folders and a broken map refused; a pinned mod with a newer zip is left untouched with no backup, with and without `-Force`; a pinned folder that is not installed is not installed; `PINNED` in the CSV and the JSON report, offline and (mocked) online. |
 | `tests/Attribution.Tests.ps1` | The validator's attribution checks actually fire — proven by feeding them content that must fail, so a check cannot rot into a no-op unnoticed. |
 | `tests/Package.Tests.ps1` | The release package: only allow-listed files, no mod content or config, the archive builds and its manifest matches `-ListOnly`. |
 
@@ -736,13 +770,14 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser
 | `Install-DarktideLoader.ps1` | Installs/updates the mod loader, manages the bundle patch. |
 | `Export-DarktideLoadout.ps1` | Packs your loadout into one zip (local backup). |
 | `Import-DarktideLoadout.ps1` | Restores a loadout zip and deploys it. |
+| `Set-ModPin.ps1` | The `pin` verb: lists, adds and removes version holds in `mods-map.json`. Dry run until `-Apply`; keeps a `.bak`. |
 | `Find-ModUpdates.ps1` | The `links` verb: Nexus pages for every mod, and GitHub release tags for mods mapped to a repository. No key, no writes. |
 | `Test-Modpack.ps1` | Repository validator, used by CI. |
 | `Invoke-Tests.ps1` | Runs the Pester suite, then the validator. |
 | `tests/` | Pester tests. Sandboxed — no game, no key, no network. |
 | `.claude/skills/` | Repo skills for coding agents: how to validate a change, the safety invariants, and a script that sets up a test environment from scratch. |
 | `config.example.json` | Config template. Copy to `config.json` (gitignored). |
-| `mods-map.json` | Folder → Nexus mod ID, plus `pinned` flags and an optional `githubRepo`. |
+| `mods-map.json` | Folder → Nexus mod ID, plus `pinned` flags (set them with `pin`) and an optional `githubRepo`. |
 | `darktide-modpack.lock.json` | The loadout manifest. |
 
 ---
@@ -773,8 +808,10 @@ Get-Content .\logs\update-*.log | Select-Object -Last 50
 Import-Csv (Get-ChildItem .\report-*.csv | Select-Object -Last 1) | Format-Table
 ```
 
-Every run writes a timestamped log to `logs\` and a CSV report next to the scripts. Both are
-gitignored; logs older than 30 days are pruned automatically.
+Every run writes a timestamped log to `logs\` and a CSV report next to the scripts, plus a
+JSON copy of the report with the same name (`report-*.json`) that also records when the
+run started, whether it was `-Apply`, offline or online, and the backup set it wrote, if
+any. All of them are gitignored; logs older than 30 days are pruned automatically.
 
 ### Verifying the tooling itself
 
