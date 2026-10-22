@@ -597,7 +597,8 @@ Take a copy before anything that might go wrong:
   other. The newest 10 are kept (`-KeepBackups` on the script).
 - A restore refuses to run while the game is open: Darktide rewrites this file when it
   exits, which would undo the restore. It copies the current file to a
-  `...-prerestore.config` backup first, so a restore can itself be undone. A `-BackupSet`
+  `...-prerestore.config` backup first, so a restore can itself be undone, unless the
+  current file is identical to the newest backup and so already saved. A `-BackupSet`
   that matches more than one backup is refused; pass more of the name.
 - The file is copied byte for byte and compared by hash. It is never parsed or merged.
 

@@ -108,13 +108,13 @@ Describe 'Backup-DarktideSettings' {
         }
 
         It 'numbers same-second backups instead of overwriting them' {
-            # Occupy the name for this second and the next two, so the run lands on a
-            # taken stamp whichever second it starts in.
+            # Occupy the name for this second and the next nine, so the run lands on a
+            # taken stamp even on a slow runner. -KeepBackups 0 so pruning keeps all ten.
             $now = Get-Date
-            $taken = @(0, 1, 2) | ForEach-Object {
+            $taken = @(0..9) | ForEach-Object {
                 New-OldBackup -Stamp $now.AddSeconds($_).ToString('yyyyMMdd-HHmmss') -Text "taken $_"
             }
-            Invoke-Tool -Extra @{ Apply = $true } | Out-Null
+            Invoke-Tool -Extra @{ Apply = $true; KeepBackups = 0 } | Out-Null
 
             $numbered = @(Get-BackupFile | Where-Object { $_.Name -match '-\d{6}-1\.config$' })
             $numbered.Count | Should -Be 1
