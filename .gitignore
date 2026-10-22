@@ -36,6 +36,9 @@ report-offline-*.csv
 nexus-catalog.json
 mod_backups/
 deploy_backups/
+# Mod profiles default to <parent of ModsRoot>\profiles, which is the repo root when
+# staging is the gitignored mods/ folder here. They are personal, like the backups.
+profiles/
 .staging-*/
 *.bak
 

@@ -20,10 +20,13 @@
         .\darktide.ps1 loader     install or update the Darktide Mod Loader
         .\darktide.ps1 export     zip your whole loadout as a personal backup
         .\darktide.ps1 import     restore a loadout zip and deploy it
+        .\darktide.ps1 profile    save, list, show, switch or delete a named load order
 
     Everything is a dry run until you add -Apply, except 'status', 'check' and
-    'links' which never write anything, and 'lock' which always writes the
-    manifest. The dry-run default includes rollback and restore.
+    'links' which never write anything, 'lock' which always writes the
+    manifest, and 'profile -Action save', which writes one new file in the
+    profiles folder and will not replace an existing profile without -Force.
+    The dry-run default includes rollback, restore and 'profile -Action switch'.
 
 .PARAMETER Verb
     Which action to run. See above.
@@ -36,6 +39,12 @@
 .PARAMETER SyncIdsFromMap
     With 'lock': copy non-null modId/url values from mods-map.json into the
     existing lockfile. Does not need ModsRoot or a full regenerate.
+
+.PARAMETER Action
+    With 'profile': save, list, show, switch or delete. Default: list.
+
+.PARAMETER Name
+    With 'profile': the profile to save, show, switch to or delete, e.g. 'full'.
 
 .PARAMETER Apply
     Actually make changes. Without it you get a plan and nothing else.
@@ -64,13 +73,17 @@
     .\darktide.ps1 links
     Every mod and its Nexus page, so checking by hand is a list of links. No key,
     no network.
+
+.EXAMPLE
+    .\darktide.ps1 profile -Action switch -Name minimal -Apply
+    Make the saved profile 'minimal' the staging load order and deploy it.
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
     [ValidateSet('init', 'status', 'check', 'links', 'update', 'deploy', 'sync', 'rollback', 'restore',
-                 'lock', 'loader', 'export', 'import', 'help')]
+                 'lock', 'loader', 'export', 'import', 'help', 'profile')]
     [string]   $Verb = 'help',
 
     [switch]   $Apply,
@@ -88,6 +101,8 @@ param(
     [string]   $Source,
     [string]   $GamePath,
     [switch]   $Deploy,
+    [string]   $Action,
+    [string]   $Name,
     [string]   $ConfigPath = (Join-Path $PSScriptRoot 'config.json')
 )
 
@@ -107,8 +122,9 @@ $Importer = Join-Path $PSScriptRoot 'Import-DarktideLoadout.ps1'
 $Initer   = Join-Path $PSScriptRoot 'Initialize-DarktideConfig.ps1'
 $Loaderer = Join-Path $PSScriptRoot 'Install-DarktideLoader.ps1'
 $Finder   = Join-Path $PSScriptRoot 'Find-ModUpdates.ps1'
+$Profiler = Join-Path $PSScriptRoot 'Switch-DarktideProfile.ps1'
 
-foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder)) {
+foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Profiler)) {
     if (-not (Test-Path -LiteralPath $s)) { throw "Missing script: $s" }
 }
 
@@ -331,6 +347,18 @@ switch ($Verb) {
         $alsoDeploy = if ($PSBoundParameters.ContainsKey('Deploy')) { [bool]$Deploy } else { $true }
         & $Importer -ConfigPath $ConfigPath -Path $Path -Apply:$Apply `
                     -Deploy:$alsoDeploy -Mirror:$Mirror -Force:$Force -Confirm:$false
+        return
+    }
+
+    'profile' {
+        $act = if ($Action) { $Action } else { 'list' }
+        $dry = (-not $Apply) -and ($act -eq 'switch' -or $act -eq 'delete')
+        Write-Head "Mod profiles: $act$(if ($dry) { ' (dry run)' })"
+        # The profile script always ends with an explicit exit code; pass it on, since a
+        # switch whose deploy failed has already changed staging and must not look green.
+        & $Profiler -ConfigPath $ConfigPath -Action $act -Name $Name -Apply:$Apply -Force:$Force -Confirm:$false
+        $code = if (Test-Path Variable:LASTEXITCODE) { $LASTEXITCODE } else { 0 }
+        if ($code) { exit $code }
         return
     }
 }
