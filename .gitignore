@@ -33,6 +33,8 @@ logs/
 *.log
 report-*.csv
 report-offline-*.csv
+report-*.json
+report-offline-*.json
 nexus-catalog.json
 mod_backups/
 deploy_backups/

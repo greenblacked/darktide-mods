@@ -29,6 +29,8 @@
 .PARAMETER Force
     In -NoApi mode, install an archive even when it is the same version or older than what
     is installed, or when its version cannot be determined. Use for repairs and downgrades.
+    It does not override a pin: a mod pinned in mods-map.json is reported as PINNED and
+    left alone either way. Unpin it first with .\darktide.ps1 pin -Only <folder> -Unpin -Apply.
 
 .PARAMETER Rollback
     Restore mod folders from a backup set instead of updating. Like every other
@@ -78,6 +80,10 @@
     Restores every mod folder from the most recent backup set.
 
 .NOTES
+    Every run writes report-<timestamp>.csv (report-offline-<timestamp>.csv with -NoApi)
+    beside this script, plus a .json of the same name holding the same rows and the run's
+    startedAt, apply, mode and backupSet.
+
     Requires Windows PowerShell 5.1 or PowerShell 7+. No external modules.
     Nexus API endpoints are stable but not versioned aggressively - if a call starts
     failing, verify the shape against https://api-docs.nexusmods.com/
@@ -133,6 +139,7 @@ $script:IgnoreFolders = @('base')
 $script:RateLimit     = @{ HourlyRemaining = $null; DailyRemaining = $null }
 $script:Stats         = @{ Checked = 0; Outdated = 0; Updated = 0; Failed = 0; Unmapped = 0 }
 $script:PinnedFolders = @()
+$script:RunStartedAt  = Get-Date
 $script:OfflineInstalled = New-Object System.Collections.Generic.List[string]
 
 # ----------------------------------------------------------------------------------
@@ -490,6 +497,32 @@ function Save-ModMap {
     $ordered = [ordered]@{}
     foreach ($k in ($Map.Keys | Sort-Object)) { $ordered[$k] = $Map[$k] }
     ($ordered | ConvertTo-Json -Depth 6) | Set-Content -LiteralPath $Path -Encoding UTF8
+}
+
+function Get-PinnedFolders {
+    <# Folder names whose mods-map.json entry has "pinned": true. #>
+    param([hashtable] $Map)
+    return @($Map.Keys | Where-Object {
+        $e = $Map[$_]
+        ($null -ne $e) -and ($e.PSObject.Properties.Name -contains 'pinned') -and $e.pinned
+    })
+}
+
+function New-PinnedReportRow {
+    <#
+      The report row for a held mod. Pinned mods used to be dropped from the report,
+      which read as "nothing to do" rather than "deliberately not touched".
+    #>
+    param([string] $Folder, $ModId, $Local, $Latest)
+    $arg = $(if ($Folder -match '^[\w.-]+$') { $Folder } else { "'" + ($Folder -replace "'", "''") + "'" })
+    return [pscustomobject]@{
+        Mod    = $Folder
+        ModId  = $(if ($ModId) { $ModId } else { '' })
+        Local  = $Local
+        Latest = $Latest
+        Status = 'PINNED'
+        Action = "held (unpin with: .\darktide.ps1 pin -Only $arg -Unpin -Apply)"
+    }
 }
 
 function Get-NormalizedName {
@@ -1060,9 +1093,11 @@ function Invoke-OfflineUpdate {
         $existing = $(if ($local.ContainsKey($folder)) { $local[$folder] } else { $null })
         $localVer = $(if ($existing) { $existing.LocalVersion } else { $null })
 
-        # Pinned mods are off limits here too.
-        if ($existing -and $script:PinnedFolders -contains $folder) {
-            Write-Log "$folder`: pinned in mods-map.json, skipped."
+        # Pinned mods are off limits, -Force included, and so is a first install of a
+        # pinned folder that is not staged: the pin says "not this one", not "not newer".
+        if ($script:PinnedFolders -contains $folder) {
+            Write-Log "$folder`: pinned in mods-map.json, held."
+            $report.Add((New-PinnedReportRow -Folder $folder -ModId $c.ModId -Local $localVer -Latest $c.Version))
             continue
         }
 
@@ -1126,6 +1161,10 @@ function Invoke-OfflineUpdate {
         if ($byFolder.ContainsKey($lm.Folder)) { continue }
         if ($OnlyFolders -and $OnlyFolders -notcontains $lm.Folder) { continue }
         if ($SkipFolders -and $SkipFolders -contains $lm.Folder)    { continue }
+        if ($script:PinnedFolders -contains $lm.Folder) {
+            $report.Add((New-PinnedReportRow -Folder $lm.Folder -ModId '' -Local $lm.LocalVersion -Latest ''))
+            continue
+        }
         $report.Add([pscustomobject]@{
             Mod    = $lm.Folder
             ModId  = ''
@@ -1235,6 +1274,29 @@ function Show-RollbackPlan {
     Write-Log 'Dry run. Re-run with -Rollback -Apply to restore.' 'WARN'
 }
 
+function Write-JsonReport {
+    <#
+      Machine-readable twin of the CSV report: the same rows plus what kind of run
+      produced them. Holds nothing the CSV does not, and never the API key.
+    #>
+    param([string] $Path, [object[]] $Rows, [string] $Mode, [bool] $Applied, [string] $BackupSetDir)
+
+    # Copy into a plain array: Windows PowerShell 5.1 can serialise a pipeline-built
+    # array as {"value": [...], "Count": n} instead of [...].
+    $list = New-Object System.Collections.Generic.List[object]
+    foreach ($r in @($Rows)) { if ($null -ne $r) { $list.Add($r) } }
+
+    $doc = [ordered]@{
+        startedAt = $script:RunStartedAt.ToString('yyyy-MM-ddTHH:mm:sszzz', [System.Globalization.CultureInfo]::InvariantCulture)
+        apply     = $Applied
+        mode      = $Mode
+        # Only a set that exists: a dry run, or an apply that replaced nothing, has none.
+        backupSet = $(if ($BackupSetDir -and (Test-Path -LiteralPath $BackupSetDir)) { Split-Path -Leaf $BackupSetDir } else { $null })
+        rows      = $list.ToArray()
+    }
+    ConvertTo-Json -InputObject $doc -Depth 4 | Set-Content -LiteralPath $Path -Encoding UTF8
+}
+
 # ----------------------------------------------------------------------------------
 # Main
 # ----------------------------------------------------------------------------------
@@ -1272,10 +1334,7 @@ if ($NoApi -or -not $cfg.ApiKey) {
 
     $mods = @(Get-LocalMods -ModsRoot $cfg.ModsRoot)
     $map  = Get-ModMap -Path $cfg.MapPath
-    $script:PinnedFolders = @($map.Keys | Where-Object {
-        $e = $map[$_]
-        ($e.PSObject.Properties.Name -contains 'pinned') -and $e.pinned
-    })
+    $script:PinnedFolders = @(Get-PinnedFolders -Map $map)
     $script:OfflineInstalled = New-Object System.Collections.Generic.List[string]
 
     $backupSetDir = Join-Path $cfg.BackupRoot (Get-Date -Format 'yyyyMMdd-HHmmss')
@@ -1302,13 +1361,17 @@ if ($NoApi -or -not $cfg.ApiKey) {
         # thing a dry run exists to show - leaving blank lines in its place.
         Out-String -Width 200 | Write-Host
 
-    $csv = Join-Path $PSScriptRoot ('report-offline-{0}.csv' -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $csv   = Join-Path $PSScriptRoot ('report-offline-{0}.csv' -f $stamp)
+    $json  = Join-Path $PSScriptRoot ('report-offline-{0}.json' -f $stamp)
     $report | Export-Csv -LiteralPath $csv -NoTypeInformation -Encoding UTF8
+    Write-JsonReport -Path $json -Rows $report -Mode 'offline' -Applied ([bool]$Apply) -BackupSetDir $backupSetDir
 
     Write-Host ''
     Write-Log ("Archives matched {0} | installed {1} | errors {2}" -f `
         $script:Stats.Checked, $script:Stats.Updated, $script:Stats.Failed) 'STEP'
     Write-Log "Report: $csv"
+    Write-Log "Report JSON: $json"
     if ($script:Stats.Updated -gt 0) {
         Remove-OldBackupSets -BackupRoot $cfg.BackupRoot -Keep $KeepBackups
         Write-Log "Backups for this run: $backupSetDir" 'OK'
@@ -1341,6 +1404,7 @@ if ($Skip) { $mods = @($mods | Where-Object { $Skip -notcontains $_.Folder }) }
 Write-Log "Found $($mods.Count) mod folder(s)." 'STEP'
 
 $map = Get-ModMap -Path $cfg.MapPath
+$script:PinnedFolders = @(Get-PinnedFolders -Map $map)
 
 if ($Resolve) {
     $map = Resolve-ModIds -Mods $mods -Map $map -Domain $cfg.GameDomain -Key $cfg.ApiKey -CatalogPath $cfg.CatalogPath
@@ -1362,8 +1426,11 @@ foreach ($m in $mods) {
     $modId = $m.ModId
     if ($map.ContainsKey($m.Folder)) {
         $e = $map[$m.Folder]
-        if ($e.PSObject.Properties.Name -contains 'pinned' -and $e.pinned) {
-            Write-Log "$($m.Folder): pinned in mods-map.json, skipped."
+        # Held: reported, but no API call spent on it and nothing installed.
+        if ($script:PinnedFolders -contains $m.Folder) {
+            Write-Log "$($m.Folder): pinned in mods-map.json, held."
+            $pinId = $(if ($e.PSObject.Properties.Name -contains 'modId' -and $e.modId) { $e.modId } else { $modId })
+            $report.Add((New-PinnedReportRow -Folder $m.Folder -ModId $pinId -Local $m.LocalVersion -Latest ''))
             continue
         }
         # An explicit map entry overrides whatever info.json claims.
@@ -1510,14 +1577,18 @@ $report | Sort-Object @{ Expression = {
     Format-Table -AutoSize -Property Mod, ModId, Local, Latest, Status, Action |
     Out-String -Width 200 | Write-Host   # see the note on the offline table above
 
-$csv = Join-Path $PSScriptRoot ('report-{0}.csv' -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
+$stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+$csv   = Join-Path $PSScriptRoot ('report-{0}.csv' -f $stamp)
+$json  = Join-Path $PSScriptRoot ('report-{0}.json' -f $stamp)
 $report | Export-Csv -LiteralPath $csv -NoTypeInformation -Encoding UTF8
+Write-JsonReport -Path $json -Rows $report.ToArray() -Mode 'online' -Applied ([bool]$Apply) -BackupSetDir $backupSetDir
 
 Write-Host ''
 Write-Log ("Checked {0} | outdated {1} | updated {2} | unmapped {3} | errors {4}" -f `
     $script:Stats.Checked, $script:Stats.Outdated, $script:Stats.Updated,
     $script:Stats.Unmapped, $script:Stats.Failed) 'STEP'
 Write-Log "Report: $csv"
+Write-Log "Report JSON: $json"
 if ($null -ne $script:RateLimit.DailyRemaining) {
     Write-Log "Nexus API budget left - hourly: $($script:RateLimit.HourlyRemaining), daily: $($script:RateLimit.DailyRemaining)"
 }
