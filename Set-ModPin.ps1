@@ -78,7 +78,9 @@
 .NOTES
     Needs no API key and no network. Never touches staging or the game folder; the
     only files it writes are mods-map.json and mods-map.json.bak (one copy, replaced
-    on each -Apply, and gitignored by the *.bak rule).
+    on each -Apply, and gitignored by the *.bak rule), plus mods-map.json.tmp for the
+    moment between writing the new map and moving it into place (also gitignored, so
+    a run killed at exactly that point cannot leave it to be committed).
 #>
 
 [CmdletBinding(SupportsShouldProcess = $true)]
@@ -146,6 +148,12 @@ function ConvertTo-MapJson {
         today: two-space indent, "key": value, empty containers as {} and []. Written
         by hand because the two engines' ConvertTo-Json disagree on indentation and
         escaping, and the map has to come out the same whichever one runs this.
+
+        One known gap: numbers are written from the parsed value, not the original
+        text. PowerShell 7 parses 1.0 as a double and this writes it back as 1
+        (5.1 parses it as a decimal and keeps 1.0). mods-map.json holds only integer
+        ids today, so nothing in it changes; a map that carries decimals would see
+        such a value reformatted on the first pin.
     #>
     param($Value, [int] $Depth = 0)
 
