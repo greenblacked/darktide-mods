@@ -317,7 +317,14 @@ function Get-GameFolderProblem {
     <#
         Pre-flight only: say why a switch could not reach the game, before staging is
         touched. The deployer still runs its own full validation and is the only thing
-        that writes the game folder. Same markers as Deploy-DarktideMods.ps1.
+        that writes the game folder. Every refusal in Assert-ValidGamePath in
+        Deploy-DarktideMods.ps1 is repeated here (existence, drive root, too few path
+        segments, markers); one that is missing lets a switch rewrite staging and then
+        stop at the deploy. Keep the two in step.
+
+        Deploy splits on '\' only. This splits on '\' or '/', which is the same on
+        Windows (a resolved path there never contains '/') and keeps the check
+        meaningful where the separator is '/'.
     #>
     param([string] $Path)
 
@@ -325,10 +332,19 @@ function Get-GameFolderProblem {
     if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
         return "Game folder '$Path' does not exist. Check GamePath in config.json."
     }
+    $full = (Resolve-Path -LiteralPath $Path).Path.TrimEnd('\', '/')
+
+    if ($full -match '^[A-Za-z]:$') {
+        return "GamePath '$full' is a drive root. Refusing."
+    }
+    if (@($full -split '[\\/]').Count -lt 3) {
+        return "GamePath '$full' is suspiciously shallow. Point it at the Darktide install folder."
+    }
+
     $markers = @('binaries\Darktide.exe', 'binaries_dx12\Darktide.exe',
                  'bundle\bundle_database.data', 'launcher\Launcher.exe')
-    $hit = @($markers | Where-Object { Test-Path -LiteralPath (Join-Path $Path $_) })
-    if (-not $hit) { return "'$Path' does not look like a Darktide install. Fix GamePath in config.json." }
+    $hit = @($markers | Where-Object { Test-Path -LiteralPath (Join-Path $full $_) })
+    if (-not $hit) { return "'$full' does not look like a Darktide install. Fix GamePath in config.json." }
     return $null
 }
 

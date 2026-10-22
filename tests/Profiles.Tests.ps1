@@ -331,6 +331,45 @@ Describe 'Switch-DarktideProfile' {
 
             Get-AllFingerprint | Should -Be $before
         }
+
+        # The deployer also refuses a drive root and a path with fewer than three
+        # segments, even when the Darktide markers are there. A one-letter PSDrive
+        # rooted in the sandbox produces exactly those paths ('Q:\' and 'Q:\game')
+        # without writing outside it. On Windows this is the deployer's real refusal;
+        # elsewhere the deployer, which splits on '\', refuses every path as shallow,
+        # so the test still fails if the pre-flight lets the switch through.
+        It 'refuses a GamePath the deployer rejects as <Case>, before staging is touched' -TestCases @(
+            @{ Case = 'a drive root';         Sub = '';     Expect = '*drive root*Nothing was written*' }
+            @{ Case = 'suspiciously shallow'; Sub = 'game'; Expect = '*suspiciously shallow*Nothing was written*' }
+        ) {
+            param($Sub, $Expect)
+
+            $driveRoot = Join-Path $script:Root 'drive'
+            $markerDir = if ($Sub) { Join-Path $driveRoot $Sub } else { $driveRoot }
+            [void][System.IO.Directory]::CreateDirectory((Join-Path $markerDir 'binaries'))
+            Set-Content -LiteralPath (Join-Path $markerDir 'binaries\Darktide.exe') -Value 'not a real exe' -Encoding ASCII
+
+            $letter = @('Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y') |
+                      Where-Object { -not (Get-PSDrive -Name $_ -ErrorAction SilentlyContinue) } |
+                      Select-Object -First 1
+            $letter | Should -Not -BeNullOrEmpty
+            New-PSDrive -Name $letter -PSProvider FileSystem -Root $driveRoot -Scope Global | Out-Null
+            try {
+                $gamePath = if ($Sub) { "${letter}:\$Sub" } else { "${letter}:\" }
+                $cfg = New-TestConfig -Root $script:Root -StagingMods $script:Staging -GamePath $gamePath
+                $loadOrderBefore = Get-Bytes $script:LoadOrder
+                $before = Get-AllFingerprint
+
+                { & $script:Profiler -ConfigPath $cfg -Action switch -Name minimal -Apply *>&1 | Out-Null } |
+                    Should -Throw $Expect
+
+                Get-Bytes $script:LoadOrder | Should -Be $loadOrderBefore
+                Test-Path -LiteralPath $script:BackupDir | Should -BeFalse
+                Get-AllFingerprint | Should -Be $before
+            } finally {
+                Remove-PSDrive -Name $letter -Scope Global -Force -ErrorAction SilentlyContinue
+            }
+        }
     }
 
     Context 'switch -Apply with a stub deployer' {

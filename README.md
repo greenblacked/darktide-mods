@@ -385,8 +385,8 @@ up to 40 characters.
 
 It refuses up front, before anything is written, when the profile names a mod that is not
 in staging (comment the line out with `--` to keep it in the file), when the game is
-running, or when `GamePath` does not look like Darktide. At the end it prints the undo for
-both sides:
+running, or when `GamePath` is one `deploy` would refuse: missing, a drive root, a folder
+directly under a drive root, or not Darktide. At the end it prints the undo for both sides:
 
 ```powershell
 .\darktide.ps1 profile -Action switch -Name mod_load_order-<stamp> -Apply   # staging and game
@@ -731,7 +731,7 @@ What it covers:
 | `tests/FindUpdates.Tests.ps1` | The `links` list: a page for every mod with an id, a built one where the lockfile has no `url`, `no Nexus id` rather than a guess, `-Only` / `-Skip` / `-OutFile`, a malformed `githubRepo` reported and ignored, `same` vs `differs` (never “newer”), and a mocked GitHub call whose failures stay distinguishable. |
 | `tests/Attribution.Tests.ps1` | The validator's attribution checks actually fire — proven by feeding them content that must fail, so a check cannot rot into a no-op unnoticed. |
 | `tests/Package.Tests.ps1` | The release package: only allow-listed files, no mod content or config, the archive builds and its manifest matches `-ListOnly`. |
-| `tests/Profiles.Tests.ps1` | The `profile` verb: save (no overwrite without `-Force`, never inside staging), list and show, invalid names refused, a switch dry run that leaves staging, game and profiles byte-identical, refusals (missing mod, path entries, game running, wrong game folder) that write nothing, load-order backup and `-KeepBackups` pruning, success and failure reported correctly whatever `$LASTEXITCODE` says, undo by backup name, a real deploy reaching the game, the already-active switch as a no-op deploy, and `delete` needing `-Apply`. |
+| `tests/Profiles.Tests.ps1` | The `profile` verb: save (no overwrite without `-Force`, never inside staging), list and show, invalid names refused, a switch dry run that leaves staging, game and profiles byte-identical, refusals (missing mod, path entries, game running, wrong game folder, a `GamePath` deploy would reject as a drive root or too shallow) that write nothing, load-order backup and `-KeepBackups` pruning, success and failure reported correctly whatever `$LASTEXITCODE` says, undo by backup name, a real deploy reaching the game, the already-active switch as a no-op deploy, and `delete` needing `-Apply`. |
 
 ---
 
