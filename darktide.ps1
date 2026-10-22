@@ -20,10 +20,16 @@
         .\darktide.ps1 loader     install or update the Darktide Mod Loader
         .\darktide.ps1 export     zip your whole loadout as a personal backup
         .\darktide.ps1 import     restore a loadout zip and deploy it
+        .\darktide.ps1 disable    switch a mod off in the load order (-Only); lists
+                                  what is switched off when -Only is left out
+        .\darktide.ps1 enable     switch a disabled mod back on (-Only)
 
     Everything is a dry run until you add -Apply, except 'status', 'check' and
     'links' which never write anything, and 'lock' which always writes the
     manifest. The dry-run default includes rollback and restore.
+
+    'enable' and 'disable' edit only the staging mod_load_order.txt. Run
+    'deploy -Apply' afterwards to make the change live.
 
 .PARAMETER Verb
     Which action to run. See above.
@@ -64,13 +70,18 @@
     .\darktide.ps1 links
     Every mod and its Nexus page, so checking by hand is a list of links. No key,
     no network.
+
+.EXAMPLE
+    .\darktide.ps1 disable -Only scoreboard -Apply
+    Switch a mod off in staging without deleting it, then deploy to make it live.
+    'enable -Only scoreboard -Apply' switches it back on.
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
     [ValidateSet('init', 'status', 'check', 'links', 'update', 'deploy', 'sync', 'rollback', 'restore',
-                 'lock', 'loader', 'export', 'import', 'help')]
+                 'lock', 'loader', 'export', 'import', 'help', 'enable', 'disable')]
     [string]   $Verb = 'help',
 
     [switch]   $Apply,
@@ -107,8 +118,9 @@ $Importer = Join-Path $PSScriptRoot 'Import-DarktideLoadout.ps1'
 $Initer   = Join-Path $PSScriptRoot 'Initialize-DarktideConfig.ps1'
 $Loaderer = Join-Path $PSScriptRoot 'Install-DarktideLoader.ps1'
 $Finder   = Join-Path $PSScriptRoot 'Find-ModUpdates.ps1'
+$Toggler  = Join-Path $PSScriptRoot 'Set-ModState.ps1'
 
-foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder)) {
+foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Toggler)) {
     if (-not (Test-Path -LiteralPath $s)) { throw "Missing script: $s" }
 }
 
@@ -331,6 +343,23 @@ switch ($Verb) {
         $alsoDeploy = if ($PSBoundParameters.ContainsKey('Deploy')) { [bool]$Deploy } else { $true }
         & $Importer -ConfigPath $ConfigPath -Path $Path -Apply:$Apply `
                     -Deploy:$alsoDeploy -Mirror:$Mirror -Force:$Force -Confirm:$false
+        return
+    }
+
+    'enable' {
+        Write-Head "Enabling mods in the staging load order$(if (-not $Apply) { ' (dry run)' })"
+        & $Toggler enable -ConfigPath $ConfigPath -Only $Only -Apply:$Apply -Confirm:$false
+        return
+    }
+
+    'disable' {
+        # With no -Only this only lists what is switched off, so it is not a dry run.
+        if ($Only) {
+            Write-Head "Disabling mods in the staging load order$(if (-not $Apply) { ' (dry run)' })"
+        } else {
+            Write-Head 'Mods switched off in the staging load order'
+        }
+        & $Toggler disable -ConfigPath $ConfigPath -Only $Only -Apply:$Apply -Confirm:$false
         return
     }
 }
