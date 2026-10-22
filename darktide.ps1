@@ -35,6 +35,9 @@
         .\darktide.ps1 errors     which mod most likely caused the last crash or error
         .\darktide.ps1 settings   back up or restore your mod settings file
         .\darktide.ps1 changes    per mod, what the last update changed (read-only)
+        .\darktide.ps1 disable    switch a mod off in the load order (-Only); lists
+                                  what is switched off when -Only is left out
+        .\darktide.ps1 enable     switch a disabled mod back on (-Only)
 
     Everything is a dry run until you add -Apply, except 'status', 'check',
     'links', 'patchcheck' and 'diff' which never write anything (patchcheck
@@ -42,6 +45,9 @@
     manifest, and 'upgrade', which shows its plan and asks before it writes
     (answering no writes nothing). The dry-run default includes rollback and
     restore.
+
+    'enable' and 'disable' edit only the staging mod_load_order.txt. Run
+    'deploy -Apply' afterwards to make the change live.
 
 .PARAMETER Verb
     Which action to run. See above.
@@ -168,13 +174,18 @@
     .\darktide.ps1 changes
     After update -Apply: old and new version of each replaced mod and which files
     were added, removed or changed. Writes nothing. -BackupSet picks an older set.
+
+.EXAMPLE
+    .\darktide.ps1 disable -Only scoreboard -Apply
+    Switch a mod off in staging without deleting it, then deploy to make it live.
+    'enable -Only scoreboard -Apply' switches it back on.
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
     [ValidateSet('init', 'status', 'check', 'links', 'update', 'deploy', 'sync', 'rollback', 'restore',
-                 'lock', 'loader', 'export', 'import', 'help', 'upgrade', 'patchcheck', 'diff', 'errors', 'settings', 'changes')]
+                 'lock', 'loader', 'export', 'import', 'help', 'upgrade', 'patchcheck', 'diff', 'errors', 'settings', 'changes', 'enable', 'disable')]
     [string]   $Verb = 'help',
 
     [switch]   $Apply,
@@ -227,8 +238,9 @@ $Differ   = Join-Path $PSScriptRoot 'Compare-DarktideLoadout.ps1'
 $Blamer   = Join-Path $PSScriptRoot 'Get-DarktideErrors.ps1'
 $SettingsBackup = Join-Path $PSScriptRoot 'Backup-DarktideSettings.ps1'
 $Changer  = Join-Path $PSScriptRoot 'Show-ModChanges.ps1'
+$Toggler  = Join-Path $PSScriptRoot 'Set-ModState.ps1'
 
-foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Upgrader, $BuildState, $Differ, $Blamer, $SettingsBackup, $Changer)) {
+foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Upgrader, $BuildState, $Differ, $Blamer, $SettingsBackup, $Changer, $Toggler)) {
     if (-not (Test-Path -LiteralPath $s)) { throw "Missing script: $s" }
 }
 
@@ -537,6 +549,23 @@ switch ($Verb) {
         Write-Head 'What the last update changed in staging'
         & $Changer -ConfigPath $ConfigPath -BackupSet $BackupSet -Only $Only -Skip $Skip `
                    -OutFile $OutFile -Force:$Force
+        return
+    }
+
+    'enable' {
+        Write-Head "Enabling mods in the staging load order$(if (-not $Apply) { ' (dry run)' })"
+        & $Toggler enable -ConfigPath $ConfigPath -Only $Only -Apply:$Apply -Confirm:$false
+        return
+    }
+
+    'disable' {
+        # With no -Only this only lists what is switched off, so it is not a dry run.
+        if ($Only) {
+            Write-Head "Disabling mods in the staging load order$(if (-not $Apply) { ' (dry run)' })"
+        } else {
+            Write-Head 'Mods switched off in the staging load order'
+        }
+        & $Toggler disable -ConfigPath $ConfigPath -Only $Only -Apply:$Apply -Confirm:$false
         return
     }
 }

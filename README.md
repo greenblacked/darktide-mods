@@ -306,6 +306,8 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 | `errors` | Read the game's newest console log and name the mod most likely behind its errors. Works without `config.json` given `-LogDir`. Read-only. |
 | `settings` | Back up your mod settings file (`user_settings.config`), or restore one with `-BackupSet`. Dry run until `-Apply`. Needs no config. |
 | `changes` | After `update -Apply`, before `deploy`: per mod, the old and new version and which files were added, removed or changed. Read-only. |
+| `disable` | Switch a mod off in the staging load order without deleting it (`-Only`). With no `-Only`, lists what is switched off. Dry run until `-Apply`. |
+| `enable` | Switch a disabled mod back on (`-Only`). Dry run until `-Apply`. |
 
 ### Useful switches
 
@@ -335,6 +337,8 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 .\darktide.ps1 links -CheckGitHub -Open                     # open only the pages whose GitHub release differs
 .\darktide.ps1 settings -Apply                             # back up your mod settings
 .\darktide.ps1 settings -BackupSet 20261022 -Apply         # restore a settings backup
+.\darktide.ps1 disable -Only scoreboard,markers_aio -Apply  # switch mods off in staging
+.\darktide.ps1 enable -Only scoreboard -Apply              # ...and back on
 ```
 
 ---
@@ -471,7 +475,9 @@ Every verb is idempotent: running it twice does the same thing as running it onc
   `-Force` overrides that when you want a redeploy anyway.
 - `update` records the installed version in each mod's `.nexus-mod.json`, so an archive you
   have already installed comes back as `SAME` and is skipped. `-Force` reinstalls.
-- `mod_load_order.txt` is only ever appended to, and never with a name already in it.
+- `mod_load_order.txt` is only ever appended to, and never with a name already in it. A
+  `--name` line counts as already in it, so updating a mod you switched off with `disable`
+  leaves it switched off.
 - `loader` compares the version you have against `<game>\.darktide-loader.json` and stops if
   they match — it doesn't even touch the bundle database, so it can't toggle your mods off.
 - `loader -PatchOnly` compares the bundle database with the fingerprint recorded after the last
@@ -705,6 +711,38 @@ folder is unmapped.
 
 ---
 
+## Switching a mod off without deleting it
+
+The mod loader skips any line in `mod_load_order.txt` that starts with `--`. `disable` and
+`enable` make that edit for you, in the **staging** copy of the file, and leave the mod
+folder where it is, so turning it back on needs no download.
+
+```powershell
+.\darktide.ps1 disable                                # what is switched off right now
+.\darktide.ps1 disable -Only scoreboard               # dry run: shows the line it would change
+.\darktide.ps1 disable -Only scoreboard -Apply        # scoreboard -> --scoreboard
+.\darktide.ps1 deploy -Apply                          # make it live in the game
+
+.\darktide.ps1 enable -Only scoreboard -Apply         # --scoreboard -> scoreboard
+.\darktide.ps1 deploy -Apply
+```
+
+- Only the named lines change. Comments, order, blank lines, line endings and the file's
+  encoding are kept exactly as they were.
+- `-Only` takes folder names as they appear in staging, several at once with commas. A name
+  that is not a staging folder is an error, and nothing is written. `base` and `dmf` are
+  refused: every other mod depends on them.
+- A staged mod that is missing from the file entirely is appended - as `name` by `enable`,
+  and as `--name` by `disable`, so a later `update` does not add it back switched on.
+- Neither verb deploys. Toggle as many mods as you like, then deploy once.
+- Before writing, the current file is copied to `loadorder_backups\mod_load_order-<time>.txt`
+  next to your `BackupRoot` folder, pruned to the newest 10. It is kept out of `BackupRoot`
+  itself because `rollback` treats every folder in there as a staging backup set.
+- `update` and `sync` leave a switched-off mod switched off, including when they install a
+  newer version of it.
+
+---
+
 ## After a Darktide patch
 
 ### Check first
@@ -760,8 +798,12 @@ The order matters:
 
 # 4. If the game crashes on load, ask the log which mod it most likely was:
 .\darktide.ps1 errors
-#    If that names nothing useful, bisect: comment out half of
-#    mod_load_order.txt with '--' and restart.
+#    If that names nothing useful, bisect: switch off half the mods, deploy,
+#    restart, and keep halving whichever half still crashes.
+.\darktide.ps1 disable -Only mod_a,mod_b,mod_c -Apply
+.\darktide.ps1 deploy -Apply
+#    When you have found it, switch the innocent ones back on:
+.\darktide.ps1 enable -Only mod_a,mod_b -Apply
 
 # 5. If one mod is the culprit and has no update yet:
 .\darktide.ps1 rollback -Apply -BackupSet '<set>'
@@ -1022,6 +1064,7 @@ What it covers:
 | `tests/LoadoutDiff.Tests.ps1` | `diff`: added, removed, version bumps, changes in place, a null version reported as *now known* rather than changed, one insertion not flagging later entries as moved, identical inputs giving exit `0` and empty lists under stable keys, reading an export zip without extracting it, malformed, oversized and wrong-schema input refused, `current` against a fake staging folder with the repository lockfile left byte-identical, and `git:` revisions (skipped, not passed, where git is missing). |
 | `tests/ErrorBlame.Tests.ps1` | The `errors` verb against synthetic console logs: ranking and counts, a path fragment, a DMF tag carrying the display name, a folder name with brackets, DMF not blamed for a hook, newest log by write time, `-Last`, tail-only reading, a missing folder, an empty log, the no-mod-lines hint, redaction of the profile path and user name (before truncation), the 200-character cut, `-OutFile` json/md with `-Force`, and nothing written anywhere else. |
 | `tests/SettingsBackup.Tests.ps1` | The `settings` verb: a byte-identical backup; an unchanged file not backed up twice; same-second backups numbered, not overwritten; retention; dry-run backup and restore write nothing; restore takes a pre-restore backup first; ambiguous or unmatched `-BackupSet` refused; restore refused while the game runs; a missing settings file reported with nothing written; backups refused inside the repo, staging or the game folder. |
+| `tests/ModToggle.Tests.ps1` | `enable` / `disable`: a disable-then-enable round trip is byte-identical (CRLF, comments, BOM, no final newline); dry run and `-WhatIf` write nothing; unknown names, paths, `base` and `dmf` refused with nothing written; backups taken, kept out of `BackupRoot` and pruned by `-KeepBackups`; the disabled list; and a disabled mod staying disabled through `update -NoApi -Apply`. |
 
 ---
 
@@ -1102,6 +1145,7 @@ goes into `$Include` in the same commit that wires it into the dispatcher.
 | `Get-DarktideErrors.ps1` | The `errors` verb: reads the game's console logs and ranks the mods most likely behind their errors. Read-only, redacts your user name and profile path. |
 | `Backup-DarktideSettings.ps1` | The `settings` verb: backs up and restores `user_settings.config`, where your mod settings live. |
 | `Show-ModChanges.ps1` | The `changes` verb: what the last `update -Apply` changed, per mod, read from its backup set. No writes beyond `-OutFile`. |
+| `Set-ModState.ps1` | The `enable` / `disable` verbs: switches a mod on or off in the staging `mod_load_order.txt`, with a backup. |
 | `Test-Modpack.ps1` | Repository validator, used by CI. |
 | `Invoke-Tests.ps1` | Runs the Pester suite, then the validator. |
 | `tests/` | Pester tests. Sandboxed — no game, no key, no network. |
@@ -1126,7 +1170,7 @@ goes into `$Include` in the same commit that wires it into the dispatcher.
 | Archive shows as `NO-ARCHIVE` | That mod has no matching zip in `DownloadDir` — nothing is wrong, there's just nothing to install for it. |
 | `Skipping '<file>': no *.mod file inside` | Not a DMF mod archive (a texture pack, a readme bundle, or a nested zip). Ignored on purpose. |
 | Deploy says `Already in sync` when you expected work | Staging really does match the game folder. If you edited the game folder directly, that edit is what `-Mirror` or `-Force` is for. |
-| Game crashes on load after an update | `.\darktide.ps1 restore -Apply`, then bisect: comment out half of `mod_load_order.txt` with `--` and restart. See [After a Darktide patch](#after-a-darktide-patch). |
+| Game crashes on load after an update | `.\darktide.ps1 restore -Apply`, then bisect: `.\darktide.ps1 disable -Only <half the mods> -Apply`, `deploy -Apply` and restart. See [After a Darktide patch](#after-a-darktide-patch). |
 | Game crashes, or a mod errors, after an update, and you want to know which | `.\darktide.ps1 errors` names the mod most likely behind it from the newest console log. See [Which mod crashed the game](#which-mod-crashed-the-game). |
 | Mods silently stop loading after a game update | Steam replaced the patched bundle. `.\darktide.ps1 loader -PatchOnly -Apply`. Avoid running the toggle bat by hand: it flips state, so a second run turns mods off again. |
 | `HTTP 403 ... premium users only` | Expected on a free Nexus account. Version *checking* works on free; downloading through the API does not. Download in the browser. |
