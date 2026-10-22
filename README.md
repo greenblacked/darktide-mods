@@ -321,6 +321,7 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 | `lock -OutFile <file>` | Write the lockfile to `<file>` instead, to send to someone. The repository lockfile is not touched. Refuses to replace an existing file without `-Force` (except with `-SyncIdsFromMap`, see above). |
 | `need -Path <file>` | Compare a friend's lockfile with your staging: what you are missing (with its Nexus link), what differs, and where each missing mod goes in their load order. Read-only; never downloads. |
 | `support` | One redacted zip to attach to a bug report: versions, mod lists, load order, log tails. Dry run until `-Apply`; works without `config.json`. |
+| `doctor` | Why mods won't load, and whether staging and the game match the lockfile. PASS/WARN/FAIL per check, with the fix for each problem. Works before `init`. Read-only. |
 
 ### Useful switches
 
@@ -359,7 +360,38 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 .\darktide.ps1 profile -Action switch -Name minimal -Apply  # swap the load order and deploy
 .\darktide.ps1 lock -OutFile my-loadout.lock.json          # a lockfile to send a friend
 .\darktide.ps1 need -Path their.lock.json -OutFile need.md # what you lack, as a clickable checklist
+.\darktide.ps1 doctor -Quick                               # setup checks without hashing mod content
+.\darktide.ps1 doctor -OutFile doctor.md                   # ...and keep the report (.md or .json)
 ```
+
+### When mods don't load: `doctor`
+
+```powershell
+.\darktide.ps1 doctor
+```
+
+One read-only pass over everything that commonly stops mods loading, grouped into
+sections. Each check prints `PASS`, `WARN`, `FAIL` or `INFO`, every problem comes with
+the command that fixes it, and a summary at the end lists the FAILs to fix first. It
+exits `1` if anything FAILs and `0` otherwise.
+
+| Section | What it checks |
+|---|---|
+| Config | `config.json` is there and parses, `ModsRoot` and `GamePath` exist, and `GamePath` really is a Darktide install. With no `config.json` it says to run `init` and carries on with what it can. |
+| Load order | In staging and in the game's `mods\mod_load_order.txt`: entries with no folder (FAIL), folders nobody listed (WARN), duplicates including case and whitespace (WARN), `--` disabled entries (INFO), `dmf` missing (FAIL), byte-order mark and mixed line endings (INFO). |
+| Folder structure | Every mod is `<folder>\<folder>.mod`. An archive extracted one level too deep, or a `.mod` named differently from its folder, is a FAIL with the exact command that fixes it. Empty folders WARN; leftover `.staging-*` folders are INFO. |
+| Drift | Staging against the lockfile's per-mod content hashes (`CHANGED`, `MISSING`, `EXTRA`; a mod locked with no hash is reported as unknown), staging against the game folder, and the lockfile's load order against staging's. |
+| Loader | `.darktide-loader.json` and its `patched` flag, `bundle\*.patch_999`, `tools\dtkit-patch.exe`, and `mods\base` in the game. |
+
+`-Quick` skips content hashing: staging, the lockfile and the game are compared by folder
+name only, without hashing mod files, so it is faster on a large loadout. `-OutFile` also
+writes the report as `.json` or `.md` (`-Force` to overwrite); nothing else is ever
+written, and it never touches the network.
+
+Two things it reports are heuristics this repository cannot verify. "dmf is listed but
+not first" is a WARN, not a FAIL, because that rule is common advice rather than
+something tested here. Whether a game update has replaced the patched bundle database is
+not checked at all; `doctor` points you at `.\darktide.ps1 patchcheck` for that.
 
 ---
 
@@ -1240,6 +1272,7 @@ What it covers:
 | `tests/Attribution.Tests.ps1` | The validator's attribution checks actually fire — proven by feeding them content that must fail, so a check cannot rot into a no-op unnoticed. |
 | `tests/DownloadsIntake.Tests.ps1` | The `intake` verb: upgrade, same, older, unlocked, mismatched-id, not-DMF, `.7z`, renamed and duplicate archives each get the right status; the missing list carries Nexus pages; `-Only` / `-Skip`; exit `1` only on an id mismatch, also through `darktide.ps1`; `-OutFile` as JSON and markdown, no overwrite without `-Force`, never into staging; downloads and staging unchanged. |
 | `tests/LoadoutNeed.Tests.ps1` | `need` against a friend's lockfile: the exact `MISSING` set and its links, `no Nexus id` when there is none, `DIFFERENT` vs unknown (including a content hash that must agree with `New-ModpackLock.ps1`), load order marking (`base` left out, bracketed folder names matched); hostile folder names, non-Nexus urls, bad ids, oversize files, wrong schema and terminal escape sequences refused or neutralised; `-OutFile` `.md` / `.json` and `-Force`; staging and the repository lockfile unchanged; the network mocked and never called; `need` exits 1 through the dispatcher, including as a separate process, when anything was dropped, and 0 on a clean run after a stale failure code; `lock -OutFile` writes the given path and `lock -SyncIdsFromMap -OutFile` edits the given copy, both leaving the repository lockfile byte-identical. |
+| `tests/Doctor.Tests.ps1` | `doctor` on a healthy sandbox is clean; each broken layout is caught at the right severity: ghost entry, unlisted folder, case/whitespace duplicate, nested extract, mismatched `.mod` name, folder with no `.mod`, empty folder, missing `dmf`, a staged file edited after locking, game content drifting from staging, a mod only in the game folder. `-Quick` skips hashing, no `config.json` is a FAIL with the `init` hint, `-OutFile` JSON parses, and every file in staging and the game has the same path, size and timestamp afterwards. |
 | `tests/Package.Tests.ps1` | The release package: only allow-listed files, no mod content or config, the archive builds and its manifest matches `-ListOnly`. |
 | `tests/PatchCheck.Tests.ps1` | `patchcheck` against a fake game and Steam manifest: no baseline, in sync by matching fingerprint (uppercase hash), database replaced, Steam update pending, no manifest, missing loader files, the timestamp fallback, `-Remember` writing only the baseline beside staging, the game folder left untouched, `PREDATES-PATCH` / `OK` / `PINNED` / `UNKNOWN` classification, `-OutFile`, and exit codes through the dispatcher. |
 | `tests/AllowlistCheck.Tests.ps1` | The validator's allow-list coverage check, run against a copy of the repository: it passes on the real layout, fails and names the script when a root script or a dispatcher reference is missing from `$Include`, accepts a script on its dev-only list, and fails rather than passing when it can no longer find the dispatcher's references. Runs on any OS. |
@@ -1322,6 +1355,7 @@ goes into `$Include` in the same commit that wires it into the dispatcher.
 | `Install-DarktideLoader.ps1` | Installs/updates the mod loader, manages the bundle patch. |
 | `Export-DarktideLoadout.ps1` | Packs your loadout into one zip (local backup). |
 | `Import-DarktideLoadout.ps1` | Restores a loadout zip and deploys it. |
+| `Test-DarktideSetup.ps1` | The `doctor` verb: config, load order, folder layout, lockfile and game drift, loader. Read-only; writes only an `-OutFile` you ask for. |
 | `Get-LoadoutGap.ps1` | The `need` verb: compares a friend's lockfile with your staging and lists what you lack, with Nexus links. No network, no writes beyond `-OutFile`. |
 | `Set-ModPin.ps1` | The `pin` verb: lists, adds and removes version holds in `mods-map.json`. Dry run until `-Apply`; keeps a `.bak`. |
 | `Invoke-DarktideUpgrade.ps1` | The `upgrade` verb: runs the update and deploy dry runs, shows one plan, asks once, then calls `Update-DarktideMods.ps1`, `Deploy-DarktideMods.ps1` and `New-ModpackLock.ps1` and prints the undo commands. Writes nothing itself. |
@@ -1346,6 +1380,9 @@ goes into `$Include` in the same commit that wires it into the dispatcher.
 ---
 
 ## Troubleshooting
+
+Start with `.\darktide.ps1 doctor`. It checks most of the causes below in one read-only
+pass and prints the fix for each problem it finds (add `-Quick` to skip content hashing).
 
 | Symptom | Cause and fix |
 |---|---|
