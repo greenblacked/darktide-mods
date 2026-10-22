@@ -20,6 +20,7 @@
         .\darktide.ps1 loader     install or update the Darktide Mod Loader
         .\darktide.ps1 export     zip your whole loadout as a personal backup
         .\darktide.ps1 import     restore a loadout zip and deploy it
+        .\darktide.ps1 settings   back up or restore your mod settings file
 
     Everything is a dry run until you add -Apply, except 'status', 'check' and
     'links' which never write anything, and 'lock' which always writes the
@@ -39,6 +40,11 @@
 
 .PARAMETER Apply
     Actually make changes. Without it you get a plan and nothing else.
+
+.PARAMETER BackupSet
+    With 'rollback' or 'restore': which backup set to restore. With 'settings':
+    restore the settings backup whose name contains this text instead of taking a
+    new backup; a substring matching more than one backup is refused.
 
 .EXAMPLE
     .\darktide.ps1 sync
@@ -64,13 +70,18 @@
     .\darktide.ps1 links
     Every mod and its Nexus page, so checking by hand is a list of links. No key,
     no network.
+
+.EXAMPLE
+    .\darktide.ps1 settings -Apply
+    Back up user_settings.config (your mod settings) before a big update. Skipped
+    when nothing changed since the last backup.
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
     [ValidateSet('init', 'status', 'check', 'links', 'update', 'deploy', 'sync', 'rollback', 'restore',
-                 'lock', 'loader', 'export', 'import', 'help')]
+                 'lock', 'loader', 'export', 'import', 'help', 'settings')]
     [string]   $Verb = 'help',
 
     [switch]   $Apply,
@@ -107,8 +118,9 @@ $Importer = Join-Path $PSScriptRoot 'Import-DarktideLoadout.ps1'
 $Initer   = Join-Path $PSScriptRoot 'Initialize-DarktideConfig.ps1'
 $Loaderer = Join-Path $PSScriptRoot 'Install-DarktideLoader.ps1'
 $Finder   = Join-Path $PSScriptRoot 'Find-ModUpdates.ps1'
+$SettingsBackup = Join-Path $PSScriptRoot 'Backup-DarktideSettings.ps1'
 
-foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder)) {
+foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $SettingsBackup)) {
     if (-not (Test-Path -LiteralPath $s)) { throw "Missing script: $s" }
 }
 
@@ -138,6 +150,16 @@ if ($Verb -eq 'links') {
 if ($Verb -eq 'lock' -and $SyncIdsFromMap) {
     Write-Head 'Syncing lockfile Nexus ids from mods-map'
     & $Locker -SyncIdsFromMap
+    return
+}
+
+# 'settings' protects a file that lives in the Windows profile, not in staging or the
+# game folder. config.json only supplies where backups go and an optional
+# SettingsPath, so the verb works before setup is finished.
+if ($Verb -eq 'settings') {
+    $what = if ($BackupSet) { 'Restoring your mod settings' } else { 'Backing up your mod settings' }
+    Write-Head "$what$(if (-not $Apply) { ' (dry run)' })"
+    & $SettingsBackup -ConfigPath $ConfigPath -BackupSet $BackupSet -Apply:$Apply -Confirm:$false
     return
 }
 
