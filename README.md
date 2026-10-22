@@ -250,6 +250,7 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 | `lock -SyncIdsFromMap` | Copy non-null Nexus ids (and urls) from `mods-map.json` into the existing lockfile. No `ModsRoot` needed; versions and hashes stay put. |
 | `export` | Zip your whole loadout into one file, as a personal backup. |
 | `import` | Restore a loadout zip into staging and deploy it, in one step. |
+| `support` | One redacted zip to attach to a bug report: versions, mod lists, load order, log tails. Dry run until `-Apply`; works without `config.json`. |
 
 ### Useful switches
 
@@ -674,6 +675,7 @@ What it covers:
 | `tests/FindUpdates.Tests.ps1` | The `links` list: a page for every mod with an id, a built one where the lockfile has no `url`, `no Nexus id` rather than a guess, `-Only` / `-Skip` / `-OutFile`, a malformed `githubRepo` reported and ignored, `same` vs `differs` (never “newer”), and a mocked GitHub call whose failures stay distinguishable. |
 | `tests/Attribution.Tests.ps1` | The validator's attribution checks actually fire — proven by feeding them content that must fail, so a check cannot rot into a no-op unnoticed. |
 | `tests/Package.Tests.ps1` | The release package: only allow-listed files, no mod content or config, the archive builds and its manifest matches `-ListOnly`. |
+| `tests/SupportBundle.Tests.ps1` | The `support` bundle: dry run writes nothing; the zip holds the expected entries and no `.mod`/`.lua`; a planted key, user name, profile path and Steam id appear in no entry; a user `alpha` leaves `alpha_mod` intact; logs redacted before they are cut; no overwrite without `-Force`; never inside the game or staging folder; works with no console log and no config. |
 
 ---
 
@@ -737,6 +739,7 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser
 | `Export-DarktideLoadout.ps1` | Packs your loadout into one zip (local backup). |
 | `Import-DarktideLoadout.ps1` | Restores a loadout zip and deploys it. |
 | `Find-ModUpdates.ps1` | The `links` verb: Nexus pages for every mod, and GitHub release tags for mods mapped to a repository. No key, no writes. |
+| `New-SupportBundle.ps1` | The `support` verb: a redacted zip of versions, mod lists, load order and log tails for a bug report. |
 | `Test-Modpack.ps1` | Repository validator, used by CI. |
 | `Invoke-Tests.ps1` | Runs the Pester suite, then the validator. |
 | `tests/` | Pester tests. Sandboxed — no game, no key, no network. |
@@ -784,6 +787,51 @@ gitignored; logs older than 30 days are pruned automatically.
 
 Runs 153 sandboxed tests plus the repository validator. It touches nothing real — see
 [Testing](#testing).
+
+---
+
+## Reporting a problem
+
+```powershell
+.\darktide.ps1 support            # list what would go in, and the sizes
+.\darktide.ps1 support -Apply     # write darktide-support-<stamp>.zip
+```
+
+Attach the zip to the issue. It is written to a `support\` folder beside your staging
+folder (or beside these scripts when there is no `config.json`); `-OutFile` puts it
+somewhere else, and `-Force` overwrites an existing one. It is never written inside the
+game folder or the staging folder.
+
+Every file inside is plain text:
+
+| Entry | What it is |
+|---|---|
+| `environment.txt` | Tool commit, PowerShell and OS version, whether `NEXUS_API_KEY` is set (never its value), whether the game is running. |
+| `config.redacted.json` | Your `config.json` with any key named like `key`, `token`, `secret` or `password` dropped. |
+| `staging-listing.txt`, `game-listing.txt` | Mod folder names and versions on each side, plus the loader markers. Names only, no file content. |
+| `staging/mod_load_order.txt`, `game/mod_load_order.txt` | The load order on each side. |
+| `loader-state.json` | What the loader installer recorded. |
+| `darktide-modpack.lock.json` | The manifest. |
+| `logs/`, `console/` | The last 300 lines of the newest `update-*.log` and of the newest Darktide console log. |
+
+What it leaves out on purpose: mod files, archives and bundle data, the API key, and the
+value of any environment variable. Before anything is cut to length, `C:\Users\<name>`
+becomes `%USERPROFILE%`, your user name becomes `<user>` (whole words only, so a user
+`alpha` leaves `alpha_mod` alone), Steam ids become `<steamid>` and email addresses
+become `<email>`.
+
+Redaction is pattern-based, so open the zip and read it before you post it. A mod can
+print anything to the console log. To redact another name as well, such as your Steam
+display name, run the script directly:
+
+```powershell
+.\New-SupportBundle.ps1 -Apply -RedactName 'MyPlayerName'
+```
+
+The console log folder defaults to `%APPDATA%\Fatshark\Darktide\console_logs`. That path
+is a best guess this repository cannot verify against a real install; if it does not exist
+the bundle says so and carries on. Point `-LogDir` at the right folder if yours is
+elsewhere.
 
 ---
 
