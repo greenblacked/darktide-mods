@@ -13,7 +13,7 @@ Framework loadout from PowerShell, with backups and a one-command rollback at ev
 > author's page. You download the mods yourself, from the authors, on Nexus. See
 > [Why a manifest](#why-a-manifest-and-not-the-mods).
 
-**First week:** [docs/first-week.md](docs/first-week.md) — init, loader, sync, undo, offline.
+**First week:** [docs/first-week.md](docs/first-week.md) — init, loader, upgrade, undo, offline.
 
 ---
 
@@ -190,9 +190,57 @@ install it with `-Force -Only <folder>` if you're sure.
 
 `-Apply` refuses to write while `Darktide.exe` is open, since replacing a loaded mod file
 gives you a half-updated game. Dry runs are fine with the game running — plan first, close,
-then apply.
+then apply. `upgrade` follows the same rule: it shows the plan with the game open, warns you,
+and refuses to apply until the game is closed.
 
-### 3. Dry run first
+### 3. Upgrade
+
+This is the everyday command:
+
+```powershell
+.\darktide.ps1 upgrade
+```
+
+It runs the update and deploy dry runs, shows the result as one plan, and asks once:
+
+```
+Plan
+  Staging (D:\Darktide\mods)
+    update  markers_aio  2.14.3 -> 2.14.4
+    new     scoreboard  1.3.0
+  Game folder (...\Warhammer 40,000 DARKTIDE\mods)
+    matches staging now; will be synced once the staging changes above are made
+  Lockfile
+    regenerated from staging once the deploy succeeds
+
+Apply this plan? [y/N]:
+```
+
+Answer `y` and it installs exactly the mods the plan named into staging, deploys to the game
+folder and regenerates the lockfile — the same three steps as `sync -Apply` below, with the
+same backups and the same stop-on-failure. Anything other than `y` or `yes` is a no, and a no
+writes nothing. If there is nothing to install and the game folder already matches staging,
+it says `Nothing to do` and exits 0 without asking.
+
+When it finishes it prints what changed, the staging backup set and the `gamemods-*.zip` this
+run made, and the exact commands that undo it:
+
+```
+Undo
+  .\darktide.ps1 restore -BackupSet 'gamemods-20261021-201215.zip' -Apply
+  .\darktide.ps1 rollback -BackupSet '20261021-201215' -Apply
+  .\darktide.ps1 lock
+```
+
+`upgrade` has no `-Apply`: the question is the gate. `-Yes` answers it for you (the plan is
+still printed, and the game still has to be closed). In a session that cannot answer —
+`powershell -NonInteractive`, or a scheduled task running with no one logged on — it refuses
+with a message rather than waiting forever, so pass `-Yes` there. `upgrade` has no `-Only`, `-Force` or `-Mirror`; for those, use
+`sync`.
+
+### 4. Or step by step: `sync`
+
+`sync` does the same work as two commands you run yourself. Dry run first:
 
 ```powershell
 .\darktide.ps1 sync
@@ -200,8 +248,7 @@ then apply.
 
 Nothing is written. You get the full plan: which archives were matched to which mod folders,
 which are newer than what's installed, and what the deploy would copy. Read it before applying.
-
-### 4. Apply
+Then apply:
 
 ```powershell
 .\darktide.ps1 sync -Apply
@@ -214,13 +261,16 @@ In order, this:
 3. backs up the live game `mods\` folder to a zip;
 4. syncs staging into the game folder;
 5. re-checks that every load-order entry resolves to a real folder;
-6. refreshes `darktide-modpack.lock.json`.
+6. refreshes `darktide-modpack.lock.json`, hashing every mod folder so the lockfile can
+   still show drift, and keeping the loadout's name.
 
 If the update step fails, deploy does not run. If deploy finishes with problems, the
-lockfile is not refreshed. Either way the exit code is non-zero.
+lockfile is not refreshed. Either way the exit code is non-zero. Before the lockfile is
+replaced, one line says what changed in it: mods added, removed, and changed in version
+or content.
 
 Everything is a dry run until `-Apply`, except `lock`, which always rewrites the
-manifest. `status` and `check` never write. Running it again when nothing has changed doesnothing at all — see [Re-running is safe](#re-running-is-safe).
+manifest, and `upgrade`, which asks first. `status` and `check` never write. Running it again when nothing has changed does nothing at all — see [Re-running is safe](#re-running-is-safe).
 
 ### 5. Start the game and confirm
 
@@ -246,10 +296,11 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 | `sync` | `update` then `deploy`, then refresh the lockfile. Stops if a step fails. |
 | `rollback` | Undo the last staging install. Dry run until `-Apply`. |
 | `restore` | Undo the last deploy to the game folder. Dry run until `-Apply`. |
-| `lock` | Regenerate `darktide-modpack.lock.json` from what's installed. |
+| `lock` | Regenerate `darktide-modpack.lock.json` from what's installed. Keeps the existing loadout name, and prints a one-line change summary before it overwrites. |
 | `lock -SyncIdsFromMap` | Copy non-null Nexus ids (and urls) from `mods-map.json` into the existing lockfile. No `ModsRoot` needed; versions and hashes stay put. |
 | `export` | Zip your whole loadout into one file, as a personal backup. |
 | `import` | Restore a loadout zip into staging and deploy it, in one step. |
+| `upgrade` | The everyday command: the `update` and `deploy` dry runs as one plan, one `Apply this plan? [y/N]`, then update, deploy and the lockfile, ending with the backup names and the commands that undo them. A no writes nothing; `-Yes` skips the question. |
 
 ### Useful switches
 
@@ -268,6 +319,7 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 .\darktide.ps1 lock -SyncIdsFromMap                        # push mods-map ids into the lockfile
 .\darktide.ps1 links -OutFile updates.md                   # the check-by-hand list, as markdown
 .\darktide.ps1 links -CheckGitHub                          # ...and ask GitHub for release tags
+.\darktide.ps1 upgrade -Yes                                # apply the upgrade plan without asking
 ```
 
 ---
@@ -660,7 +712,8 @@ the loadout, and you fetch each mod from its author.
 ```
 
 `contentSha256` hashes the installed folder's contents, so you can tell whether an install has
-drifted from what was locked.
+drifted from what was locked. `sync -Apply` and `lock` both hash; only `New-ModpackLock.ps1
+-NoHash` writes `null` there, and it warns when that replaces hashes the lockfile already had.
 
 The CI packaging step uses an explicit allow-list and hard-fails if anything mod-shaped ends up
 in the artifact.
@@ -723,7 +776,9 @@ What it covers:
 | `tests/Export.Tests.ps1` | The loadout archive: every mod included, forward-slash entry names so it opens on any tool, no overwrite without `-Force`, never written inside the folder it's archiving. |
 | `tests/Import.Tests.ps1` | Export → import round trip onto an empty machine, replacing an existing install without merging stale files, traversal archives refused, and restore-plus-deploy in one run. |
 | `tests/Dispatcher.Tests.ps1` | `rollback` / `restore` without `-Apply` write nothing; with `-Apply` they reach the updater and deployer; `sync` does not deploy when update fails. |
+| `tests/LockPreserve.Tests.ps1` | Regenerating over an existing lockfile keeps its name unless `-Name` is passed, prints the change summary, and warns when `-NoHash` drops hashes; `sync -Apply` refreshes the lockfile with hashes after a deploy that copied files (robocopy's exit code `1`), and does not refresh it when the deploy fails or throws. |
 | `tests/UpgradeWorkflow.Tests.ps1` | The whole upgrade, in order, through `darktide.ps1`: dry run, `update -Apply` into staging only, `deploy -Apply` to make it live, `lock`, then rollback — including the two properties that look like bugs until you know staging is the source of truth. |
+| `tests/Upgrade.Tests.ps1` | The `upgrade` verb: answering no (or nothing) leaves staging, the game and both backup folders byte-identical; `-Yes` and `y` update staging and the game, make one backup set and one `gamemods-*.zip`, and the summary names both in its undo commands; the lockfile is regenerated; an archive that arrives while it asks is not installed; nothing to do exits 0 without asking; a failed update never reaches deploy; a running game (mocked) is warned about at plan time and refused at apply time; a `-NonInteractive` session without `-Yes` refuses instead of hanging. |
 | `tests/FindUpdates.Tests.ps1` | The `links` list: a page for every mod with an id, a built one where the lockfile has no `url`, `no Nexus id` rather than a guess, `-Only` / `-Skip` / `-OutFile`, a malformed `githubRepo` reported and ignored, `same` vs `differs` (never “newer”), and a mocked GitHub call whose failures stay distinguishable. |
 | `tests/Attribution.Tests.ps1` | The validator's attribution checks actually fire — proven by feeding them content that must fail, so a check cannot rot into a no-op unnoticed. |
 | `tests/Package.Tests.ps1` | The release package: only allow-listed files, no mod content or config, the archive builds and its manifest matches `-ListOnly`. |
@@ -789,6 +844,7 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser
 | `Install-DarktideLoader.ps1` | Installs/updates the mod loader, manages the bundle patch. |
 | `Export-DarktideLoadout.ps1` | Packs your loadout into one zip (local backup). |
 | `Import-DarktideLoadout.ps1` | Restores a loadout zip and deploys it. |
+| `Invoke-DarktideUpgrade.ps1` | The `upgrade` verb: runs the update and deploy dry runs, shows one plan, asks once, then calls `Update-DarktideMods.ps1`, `Deploy-DarktideMods.ps1` and `New-ModpackLock.ps1` and prints the undo commands. Writes nothing itself. |
 | `Find-ModUpdates.ps1` | The `links` verb: Nexus pages for every mod, and GitHub release tags for mods mapped to a repository. No key, no writes. |
 | `Test-Modpack.ps1` | Repository validator, used by CI. |
 | `Invoke-Tests.ps1` | Runs the Pester suite, then the validator. |
@@ -807,6 +863,7 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser
 | `cannot be loaded because running scripts is disabled` | Execution policy. `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, then `Get-ChildItem *.ps1 \| Unblock-File`. |
 | `does not look like a Darktide install` | `GamePath` is wrong. It must be the folder containing `binaries\Darktide.exe` or `bundle\bundle_database.data` — not the Steam library root, not the `mods\` folder inside it. |
 | `is not a mods folder (no mod_load_order.txt, no base\)` | `ModsRoot` points somewhere that isn't a DMF mods folder. See step 3's note on creating staging. |
+| `This session cannot answer 'Apply this plan?'` | `upgrade` was run where nobody can type an answer (`-NonInteractive`, or a scheduled task with no one logged on). Run it in a PowerShell window, or add `-Yes`. |
 | `Darktide.exe is running` | You passed `-Apply` with the game open. Close it, or drop `-Apply` for a dry run. Hung process: `Get-Process Darktide`. |
 | `Nothing to do. Download mod archives...` | No `.zip` files in `DownloadDir`. Check the path in `config.json` and that your browser didn't save `.zip.crdownload`. |
 | Archive shows as `VERSION-UNKNOWN` | The filename was changed and the zip has no `info.json`. Install it deliberately: `.\darktide.ps1 update -Apply -Force -Only <folder>`. |
