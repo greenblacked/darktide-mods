@@ -9,6 +9,8 @@
       - the lockfile matches its schema expectations and is internally consistent
       - no mod content, secrets, or personal paths have leaked into tracked files
       - config.json is not tracked by git
+      - the release allow-list exists on disk and ships every script the
+        dispatcher needs
 
     Exits non-zero on any failure so CI fails loudly.
 
@@ -485,6 +487,89 @@ Test-Case 'release allow-list files exist' {
     foreach ($needed in @('darktide.ps1', 'darktide-modpack.lock.json', 'README.md', 'LICENSE')) {
         if ($listed -notcontains $needed) { throw "release allow-list no longer ships '$needed'" }
     }
+}
+
+Test-Case 'release allow-list covers every dispatcher script' {
+    # The check above proves that everything listed exists. This one proves the
+    # converse for scripts: that nothing the tool needs was left off the list. The
+    # dispatcher refuses to run any verb until every script it fronts is present,
+    # so a new root script missing from $Include passes every other check here and
+    # then ships a package in which every verb throws 'Missing script'.
+    $packer = Join-Path $root 'New-ReleasePackage.ps1'
+    $dispatcher = Join-Path $root 'darktide.ps1'
+    if (-not (Test-Path -LiteralPath $packer)) { throw 'New-ReleasePackage.ps1 is missing' }
+    if (-not (Test-Path -LiteralPath $dispatcher)) { throw 'darktide.ps1 is missing' }
+
+    # Compared with '/' whichever separator an entry was written with, so the
+    # result is the same on Windows, Linux and macOS.
+    $listed = @(& $packer -ListOnly | ForEach-Object { ([string]$_).Replace('\', '/').TrimEnd('/') })
+
+    # Root scripts that stay out of the package on purpose. Every name needs a
+    # reason next to it; a root script that is neither here nor on the allow-list
+    # is treated as forgotten, which is the mistake this check exists for.
+    $devOnly = @(
+        # Builds the package. CI and the release job run it from the checkout, and
+        # an installed copy has nothing of its own to package.
+        'New-ReleasePackage.ps1'
+    )
+
+    # (a) Every .ps1 at the repository root is shipped or explicitly dev-only.
+    # Extension compared rather than trusted to -Filter, which on Windows also
+    # matches '.ps1xml' through the short-name fallback.
+    $unlisted = @(Get-ChildItem -LiteralPath $root -File |
+                  Where-Object { $_.Extension -eq '.ps1' -and
+                                 $listed -notcontains $_.Name -and
+                                 $devOnly -notcontains $_.Name } |
+                  ForEach-Object { $_.Name } | Sort-Object)
+
+    # (b) Every script the dispatcher resolves with Join-Path $PSScriptRoot is
+    # shipped, whether it is passed positionally or as -ChildPath. Parsed, not
+    # grepped, so a name inside a comment or the help text does not count.
+    $errors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($dispatcher, [ref]$null, [ref]$errors)
+    if ($errors -and $errors.Count -gt 0) {
+        throw "darktide.ps1 does not parse (line $($errors[0].Extent.StartLineNumber)): $($errors[0].Message)"
+    }
+
+    $referenced = @()
+    $commands = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true)
+    foreach ($cmd in $commands) {
+        if ($cmd.GetCommandName() -ne 'Join-Path') { continue }
+        $elements = @($cmd.CommandElements | Select-Object -Skip 1)
+        $fromRoot = @($elements | Where-Object {
+            $_ -is [System.Management.Automation.Language.VariableExpressionAst] -and
+            $_.VariablePath.UserPath -eq 'PSScriptRoot' })
+        if (-not $fromRoot) { continue }
+        foreach ($e in $elements) {
+            if ($e -is [System.Management.Automation.Language.StringConstantExpressionAst] -and
+                $e.Value -match '\.ps1$') {
+                $referenced += $e.Value.Replace('\', '/')
+            }
+        }
+    }
+
+    # A check that finds nothing to compare passes on everything. If the dispatcher
+    # stops resolving its scripts this way, say so rather than reporting PASS.
+    if (-not $referenced) {
+        throw "found no Join-Path `$PSScriptRoot '<name>.ps1' in darktide.ps1; the dispatcher changed shape and this check needs updating"
+    }
+
+    # A reference is covered by an exact entry, or by a listed folder above it.
+    $unshipped = @($referenced | Sort-Object -Unique | Where-Object {
+        $ref = $_
+        $cover = @($listed | Where-Object {
+            $ref -eq $_ -or $ref.StartsWith("$_/", [System.StringComparison]::OrdinalIgnoreCase) })
+        $cover.Count -eq 0
+    })
+
+    $problems = @()
+    if ($unlisted) {
+        $problems += "root script(s) neither on the release allow-list nor marked dev-only: $($unlisted -join ', ') (add to `$Include in New-ReleasePackage.ps1, or to the dev-only list in this check with a reason)"
+    }
+    if ($unshipped) {
+        $problems += "darktide.ps1 needs script(s) the release does not ship: $($unshipped -join ', ') (a released package would throw 'Missing script' for every verb)"
+    }
+    if ($problems) { throw ($problems -join '; ') }
 }
 
 Test-Case '.gitignore covers the important things' {
