@@ -31,17 +31,31 @@
     Where to write the lockfile. Defaults to darktide-modpack.lock.json next to this script.
 
 .PARAMETER Name
-    Human-readable name for the loadout.
+    Human-readable name for the loadout. When omitted and -OutFile already holds a
+    lockfile with a name, that name is kept, so regenerating never renames the
+    loadout. Pass -Name to change it. A new lockfile gets 'Darktide loadout'.
 
 .PARAMETER NoHash
-    Skip per-mod content hashing. Faster, but the lockfile can no longer be used to
-    detect that an installed mod folder has drifted from what was locked.
+    Skip per-mod content hashing. Faster, but every contentSha256 is written as null,
+    replacing any hash the existing lockfile held, so the lockfile can no longer be
+    used to detect that an installed mod folder has drifted from what was locked.
+    A warning says how many existing hashes it drops. 'darktide.ps1 sync' and
+    'darktide.ps1 lock' do not pass it.
 
 .EXAMPLE
     .\New-ModpackLock.ps1 -ModsRoot D:\Darktide\mods
 
 .EXAMPLE
+    .\New-ModpackLock.ps1 -ModsRoot D:\Darktide\mods -Name "My Darktide loadout"
+    Regenerate and rename the loadout.
+
+.EXAMPLE
     .\New-ModpackLock.ps1 -SyncIdsFromMap
+
+.NOTES
+    Before replacing an existing lockfile it prints one line counting the mods added,
+    removed and changed in version (and, when hashing, changed in content), so a
+    regeneration is never silent.
 #>
 
 [CmdletBinding(DefaultParameterSetName = 'FromMods')]
@@ -108,6 +122,69 @@ function Get-ModMapTable {
     if (-not $raw.Trim()) { return $map }
     foreach ($p in ($raw | ConvertFrom-Json).PSObject.Properties) { $map[$p.Name] = $p.Value }
     return $map
+}
+
+function Read-ExistingLock {
+    <#
+      The lockfile about to be replaced, or $null when there is none. An unreadable
+      one is reported and treated as absent: regenerating is how it gets repaired.
+    #>
+    param([string] $Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
+    try {
+        $raw = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
+        if (-not $raw -or -not $raw.Trim()) { return $null }
+        return ($raw | ConvertFrom-Json)
+    } catch {
+        Write-Host "Existing lockfile '$Path' could not be read ($($_.Exception.Message)). It will be replaced; no change summary." -ForegroundColor Yellow
+        return $null
+    }
+}
+
+function Get-LockChangeSummary {
+    <#
+      Compares the existing lockfile's mods with the ones about to be written, by
+      folder. Returns counts only; the caller decides how to print them.
+    #>
+    param(
+        [Parameter(Mandatory)] $Existing,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $NewMods
+    )
+
+    $old = @{}
+    if ($Existing.PSObject.Properties.Name -contains 'mods') {
+        foreach ($m in @($Existing.mods)) {
+            if ($null -eq $m -or -not ($m.PSObject.Properties.Name -contains 'folder')) { continue }
+            $old["$($m.folder)"] = $m
+        }
+    }
+
+    $added = 0; $versionChanged = 0; $contentChanged = 0; $hashesDropped = 0
+    $seen = @{}
+    foreach ($n in $NewMods) {
+        $folder = "$($n['folder'])"
+        $seen[$folder] = $true
+        if (-not $old.ContainsKey($folder)) { $added++; continue }
+
+        $o = $old[$folder]
+        $oldVersion = if ($o.PSObject.Properties.Name -contains 'version') { "$($o.version)" } else { '' }
+        if ($oldVersion -cne "$($n['version'])") { $versionChanged++ }
+
+        $oldHash = if ($o.PSObject.Properties.Name -contains 'contentSha256') { "$($o.contentSha256)" } else { '' }
+        $newHash = "$($n['contentSha256'])"
+        if ($oldHash -and -not $newHash) { $hashesDropped++ }
+        elseif ($oldHash -and $newHash -and $oldHash -ne $newHash) { $contentChanged++ }
+    }
+    $removed = @($old.Keys | Where-Object { -not $seen.ContainsKey($_) }).Count
+
+    return [pscustomobject]@{
+        Added          = $added
+        Removed        = $removed
+        VersionChanged = $versionChanged
+        ContentChanged = $contentChanged
+        HashesDropped  = $hashesDropped
+    }
 }
 
 # ---- SyncIdsFromMap: surgical id/url update, no ModsRoot --------------------------
@@ -255,9 +332,35 @@ foreach ($dir in (Get-ChildItem -LiteralPath $ModsRoot -Directory | Sort-Object 
     })
 }
 
+# ---- Compare with the lockfile being replaced -------------------------------------
+
+$existing = Read-ExistingLock -Path $OutFile
+
+# Keep the loadout's name unless the caller asked for a different one. The parameter
+# default is only for a lockfile that does not exist yet.
+$lockName = $Name
+$nameKept = $false
+if (-not $PSBoundParameters.ContainsKey('Name') -and $null -ne $existing -and
+    $existing.PSObject.Properties.Name -contains 'name' -and
+    $existing.name -is [string] -and $existing.name.Trim()) {
+    $lockName = $existing.name
+    $nameKept = $true
+}
+
+if ($null -ne $existing) {
+    $delta = Get-LockChangeSummary -Existing $existing -NewMods $mods.ToArray()
+    $line = "Changes vs the existing lockfile: $($delta.Added) added, $($delta.Removed) removed, $($delta.VersionChanged) version changed"
+    if (-not $NoHash) { $line += ", $($delta.ContentChanged) content changed" }
+    Write-Host ''
+    Write-Host "$line."
+    if ($delta.HashesDropped -gt 0) {
+        Write-Host "  -NoHash: $($delta.HashesDropped) existing contentSha256 value(s) will be written as null; drift detection is lost for those mods." -ForegroundColor Yellow
+    }
+}
+
 $lock = [ordered]@{
     schemaVersion = 1
-    name          = $Name
+    name          = $lockName
     game          = $GameDomain
     generatedAt   = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
     generatedBy   = 'New-ModpackLock.ps1'
@@ -273,6 +376,7 @@ $mapped   = @($mods | Where-Object { $_.modId }).Count
 $versioned = @($mods | Where-Object { $_.version }).Count
 Write-Host ''
 Write-Host "Wrote $OutFile" -ForegroundColor Green
+Write-Host "  name:      $lockName$(if ($nameKept) { ' (kept from the existing lockfile)' })"
 Write-Host "  mods:      $($mods.Count)"
 Write-Host "  with id:   $mapped"
 Write-Host "  with ver:  $versioned"
