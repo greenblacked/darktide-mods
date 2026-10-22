@@ -126,7 +126,7 @@ Describe 'Test-DarktideSetup.ps1 (doctor)' {
 
     Context 'read-only' {
 
-        It 'leaves staging and the game folder byte-for-byte unchanged on a healthy run' {
+        It 'leaves every file in staging and the game folder unchanged (path, size, timestamp) on a healthy run' {
             $s = Get-TreeFingerprint -Path $script:Staging
             $g = Get-TreeFingerprint -Path $script:Game
             $null = Invoke-Doctor
@@ -187,6 +187,11 @@ Describe 'Test-DarktideSetup.ps1 (doctor)' {
             $r = Invoke-Doctor -Extra @{ GamePath = $notGame }
             $r.Code | Should -Be 1
             (Get-Finding $r 'config.gamepath' 'FAIL')[0].message | Should -Match 'does not look like Darktide'
+        }
+
+        It 'WARNs when ModsRoot is the game mods folder itself' {
+            $r = Invoke-Doctor -Extra @{ StagingMods = $script:GameMods }
+            (Get-Finding $r 'config.samefolder' 'WARN').Count | Should -Be 1
         }
 
         It 'reports a ModsRoot that does not exist' {
@@ -318,6 +323,18 @@ Describe 'Test-DarktideSetup.ps1 (doctor)' {
             (Get-Finding $r 'structure.nomod' -Subject 'gamma_mod').Count | Should -Be 0
         }
 
+        It 'FAILs a folder with files but no .mod at all' {
+            $dir = Join-Path $script:Staging 'gamma_mod'
+            [void][System.IO.Directory]::CreateDirectory($dir)
+            Set-Content -LiteralPath (Join-Path $dir 'readme.txt') -Value 'not a mod' -Encoding ASCII
+            Add-Content -LiteralPath (Join-Path $script:Staging 'mod_load_order.txt') -Value 'gamma_mod'
+            $r = Invoke-Doctor
+            $r.Code | Should -Be 1
+            $f = Get-Finding $r 'structure.nomod' 'FAIL' 'staging' 'gamma_mod'
+            $f.Count | Should -Be 1
+            $f[0].fix | Should -Match 'update -Apply -Force -Only gamma_mod'
+        }
+
         It 'routes a leftover .staging-* folder in the game through deploy, not a direct delete' {
             [void][System.IO.Directory]::CreateDirectory((Join-Path $script:GameMods '.staging-alpha_mod'))
             $r = Invoke-Doctor
@@ -396,6 +413,14 @@ Describe 'Test-DarktideSetup.ps1 (doctor)' {
             $r = Invoke-Doctor
             (Get-Finding $r 'drift.notdeployed' 'WARN' 'game' 'gamma_mod').Count | Should -Be 1
             (Get-Finding $r 'drift.notdeployed' 'WARN' 'game' 'alpha_mod').Count | Should -Be 1
+
+            $gameOnly = Join-Path $script:GameMods 'delta_mod'
+            [void][System.IO.Directory]::CreateDirectory($gameOnly)
+            Set-Content -LiteralPath (Join-Path $gameOnly 'delta_mod.mod') -Value 'return {}' -Encoding UTF8
+            $r = Invoke-Doctor
+            $n = Get-Finding $r 'drift.notstaged' 'WARN' 'game' 'delta_mod'
+            $n.Count | Should -Be 1
+            $n[0].fix | Should -Match 'deploy -Apply -Mirror'
         }
 
         It '-Quick skips content hashing but still compares names' {
