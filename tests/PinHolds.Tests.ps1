@@ -435,6 +435,18 @@ Describe 'Update honours pins' {
             @($rows | Where-Object { $_.Mod -eq 'alpha_mod' })[0].Status | Should -Be 'PINNED'
         }
 
+        It 'still reports the pin when the download folder is empty' {
+            Get-ChildItem -LiteralPath $script:Downloads -File | Remove-Item -Force
+
+            $lines = @(& $script:Updater -ConfigPath $script:Config -NoApi *>&1 | ForEach-Object { "$_" })
+            ($lines -join "`n") | Should -Match 'Nothing to do'
+            $rows  = @(Import-Csv -LiteralPath (Get-LoggedPath -Output $lines -Label 'Report' -Extension 'csv'))
+
+            @($rows | Where-Object { $_.Mod -eq 'alpha_mod' })[0].Status | Should -Be 'PINNED'
+            @($rows | Where-Object { $_.Mod -eq 'beta_mod' })[0].Status  | Should -Be 'NO-ARCHIVE'
+            Get-TreeFingerprint -Path (Join-Path $script:Staging 'alpha_mod') | Should -Be $script:AlphaBefore
+        }
+
         It 'writes a JSON report that parses and carries the run and the PINNED row' {
             $lines = @(& $script:Updater -ConfigPath $script:Config -NoApi -Apply -Confirm:$false *>&1 |
                        ForEach-Object { "$_" })

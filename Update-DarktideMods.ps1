@@ -1039,8 +1039,9 @@ function Invoke-OfflineUpdate {
 
     Write-Log "Offline mode: $($archives.Count) .zip file(s) in $DownloadDir" 'STEP'
     if (-not $archives) {
+        # No early return: the installed-but-no-archive pass below still runs, so the
+        # report lists every mod (pins as PINNED) rather than coming out empty.
         Write-Log 'Nothing to do. Download mod archives from Nexus into that folder first.' 'WARN'
-        return @()
     }
 
     # Index the local mods by folder name for quick lookup.
