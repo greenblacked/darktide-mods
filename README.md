@@ -114,6 +114,7 @@ notepad config.json
 | `LoaderSource` | Unzipped Darktide Mod Loader folder or its `.zip`. `init` fills this in if it finds one. |
 | `BackupRoot` | Staging backups. Leave blank for `<parent of ModsRoot>\mod_backups`. |
 | `DeployBackupRoot` | Game-folder backups. Leave blank for `<parent of ModsRoot>\deploy_backups`. |
+| `ProfilesRoot` | Optional. Where [profiles](#profiles) are kept. Leave out for `<parent of ModsRoot>\profiles`. Must not be inside `ModsRoot`. |
 | `ApiKey` | Do not set. `init` will not write this field. Use the `NEXUS_API_KEY` environment variable — see [Checking versions locally](#checking-versions-locally-step-by-step). |
 
 `config.json` is gitignored and never leaves your machine. Use `\\` in JSON paths.
@@ -250,6 +251,7 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 | `lock -SyncIdsFromMap` | Copy non-null Nexus ids (and urls) from `mods-map.json` into the existing lockfile. No `ModsRoot` needed; versions and hashes stay put. |
 | `export` | Zip your whole loadout into one file, as a personal backup. |
 | `import` | Restore a loadout zip into staging and deploy it, in one step. |
+| `profile` | Save, list, show, switch or delete named load orders such as `full` or `minimal`. `switch` deploys; it and `delete` are dry runs until `-Apply`. See [Profiles](#profiles). |
 
 ### Useful switches
 
@@ -264,6 +266,7 @@ If the game crashes on load, you have two undo paths and neither needs a re-down
 .\darktide.ps1 lock -SyncIdsFromMap                        # push mods-map ids into the lockfile
 .\darktide.ps1 links -OutFile updates.md                   # the check-by-hand list, as markdown
 .\darktide.ps1 links -CheckGitHub                          # ...and ask GitHub for release tags
+.\darktide.ps1 profile -Action switch -Name minimal -Apply  # swap the load order and deploy
 ```
 
 ---
@@ -349,6 +352,58 @@ Check it with `.\darktide.ps1 status`, then launch the game.
 
 ---
 
+## Profiles
+
+A profile is a named copy of your staging `mod_load_order.txt`. Every mod stays installed in
+staging; the mod framework only loads what the load order lists, so a lighter set for solo
+play or for chasing a crash is one file swap and a deploy away.
+
+```powershell
+.\darktide.ps1 profile -Action save -Name full          # snapshot the current load order
+# edit mod_load_order.txt (comment mods out with --), then:
+.\darktide.ps1 profile -Action save -Name minimal
+.\darktide.ps1 profile                                  # list; * marks the one staging matches
+.\darktide.ps1 profile -Action show -Name minimal       # contents, and mods missing from staging
+.\darktide.ps1 profile -Action switch -Name full        # the plan: what gets enabled and disabled
+.\darktide.ps1 profile -Action switch -Name full -Apply # back up, switch, deploy
+.\darktide.ps1 profile -Action delete -Name minimal -Apply
+```
+
+Profiles are plain text files in `<parent of ModsRoot>\profiles\<name>.txt`, or wherever
+`ProfilesRoot` in `config.json` points. They are never kept inside staging: deploy and
+export treat every folder in there as a mod. Names are letters, digits, `.`, `_` and `-`,
+up to 40 characters.
+
+`switch -Apply` does three things, in order:
+
+1. Copies the current staging load order to `<profiles>\backups\mod_load_order-<stamp>.txt`.
+   These are pruned to the newest `-KeepBackups` (default 10) when the script is run
+   directly; the verb uses the default.
+2. Writes the profile over the staging `mod_load_order.txt`.
+3. Runs `deploy -Apply`, which takes its usual `gamemods-*.zip` backup and refuses while
+   the game is running. The profile script never writes the game folder itself.
+
+It refuses up front, before anything is written, when the profile names a mod that is not
+in staging (comment the line out with `--` to keep it in the file), when the game is
+running, or when `GamePath` does not look like Darktide. At the end it prints the undo for
+both sides:
+
+```powershell
+.\darktide.ps1 profile -Action switch -Name mod_load_order-<stamp> -Apply   # staging and game
+.\darktide.ps1 restore -Apply -BackupSet 'gamemods-<stamp>.zip'             # game folder only
+```
+
+If the deploy fails after staging was switched, it says so in those words, exits `1`, and
+prints both the command that finishes the switch (`deploy -Apply`) and the one that puts
+staging back. `save` writes straight away, since it only adds a file, but will not replace
+an existing profile without `-Force`. `list` and `show` never write.
+
+The load-order backups live under the profiles folder rather than `BackupRoot` on purpose:
+`rollback` treats every folder in `BackupRoot` as a staging backup set and picks the newest
+by name, so a `loadorder` folder there would be chosen ahead of your real backups.
+
+---
+
 ## Re-running is safe
 
 Every verb is idempotent: running it twice does the same thing as running it once.
@@ -363,6 +418,8 @@ Every verb is idempotent: running it twice does the same thing as running it onc
   they match — it doesn't even touch the bundle database, so it can't toggle your mods off.
 - Staging, deploy, and loader backups are each pruned to the newest `-KeepBackups`
   archives (default 10), so repeated runs cannot fill the disk.
+- `profile -Action switch` to the profile staging already uses rewrites nothing and takes
+  no load-order backup; its deploy then finds nothing to copy.
 
 ---
 
@@ -674,6 +731,7 @@ What it covers:
 | `tests/FindUpdates.Tests.ps1` | The `links` list: a page for every mod with an id, a built one where the lockfile has no `url`, `no Nexus id` rather than a guess, `-Only` / `-Skip` / `-OutFile`, a malformed `githubRepo` reported and ignored, `same` vs `differs` (never “newer”), and a mocked GitHub call whose failures stay distinguishable. |
 | `tests/Attribution.Tests.ps1` | The validator's attribution checks actually fire — proven by feeding them content that must fail, so a check cannot rot into a no-op unnoticed. |
 | `tests/Package.Tests.ps1` | The release package: only allow-listed files, no mod content or config, the archive builds and its manifest matches `-ListOnly`. |
+| `tests/Profiles.Tests.ps1` | The `profile` verb: save (no overwrite without `-Force`, never inside staging), list and show, invalid names refused, a switch dry run that leaves staging, game and profiles byte-identical, refusals (missing mod, path entries, game running, wrong game folder) that write nothing, load-order backup and `-KeepBackups` pruning, success and failure reported correctly whatever `$LASTEXITCODE` says, undo by backup name, a real deploy reaching the game, the already-active switch as a no-op deploy, and `delete` needing `-Apply`. |
 
 ---
 
@@ -737,6 +795,7 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser
 | `Export-DarktideLoadout.ps1` | Packs your loadout into one zip (local backup). |
 | `Import-DarktideLoadout.ps1` | Restores a loadout zip and deploys it. |
 | `Find-ModUpdates.ps1` | The `links` verb: Nexus pages for every mod, and GitHub release tags for mods mapped to a repository. No key, no writes. |
+| `Switch-DarktideProfile.ps1` | The `profile` verb: named variants of the staging load order, switched with a backup and a deploy. |
 | `Test-Modpack.ps1` | Repository validator, used by CI. |
 | `Invoke-Tests.ps1` | Runs the Pester suite, then the validator. |
 | `tests/` | Pester tests. Sandboxed — no game, no key, no network. |
