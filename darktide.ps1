@@ -30,6 +30,7 @@
                                   place, and what to run next
         .\darktide.ps1 diff       how two loadouts differ: lockfile, export zip,
                                   git:<rev> or current staging
+        .\darktide.ps1 errors     which mod most likely caused the last crash or error
 
     Everything is a dry run until you add -Apply, except 'status', 'check',
     'links', 'patchcheck' and 'diff' which never write anything (patchcheck
@@ -81,6 +82,14 @@
     With 'diff': the loadout to compare with it. Same forms as -Left. Defaults to
     current, the staging folder as it is now. Only 'current' needs config.json.
 
+.PARAMETER LogDir
+    With 'errors': the folder holding Darktide's console logs. Defaults to
+    ConsoleLogDir in config.json, then %APPDATA%\Fatshark\Darktide\console_logs.
+    With -LogDir, 'errors' needs no config.json at all.
+
+.PARAMETER Last
+    With 'errors': how many of the newest console logs to read. Default 1.
+
 .EXAMPLE
     .\darktide.ps1 sync
     Dry run of the full pipeline - shows what would be installed and deployed.
@@ -124,13 +133,18 @@
     .\darktide.ps1 diff
     How staging differs from the committed lockfile. Exits 0 when identical, 1 when
     not. Add -Left git:HEAD~1 -Right git:HEAD, or a loadout zip, to compare others.
+
+.EXAMPLE
+    .\darktide.ps1 errors -Last 2 -OutFile errors.md
+    Reads the two newest console logs and names the mods most likely behind their
+    errors. Read-only; the report goes to errors.md as well.
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
     [ValidateSet('init', 'status', 'check', 'links', 'update', 'deploy', 'sync', 'rollback', 'restore',
-                 'lock', 'loader', 'export', 'import', 'help', 'upgrade', 'patchcheck', 'diff')]
+                 'lock', 'loader', 'export', 'import', 'help', 'upgrade', 'patchcheck', 'diff', 'errors')]
     [string]   $Verb = 'help',
 
     [switch]   $Apply,
@@ -154,6 +168,9 @@ param(
     [switch]   $Remember,
     [string]   $Left,
     [string]   $Right,
+    [string]   $LogDir,
+    [ValidateRange(1, 1000)]
+    [int]      $Last = 1,
     [string]   $ConfigPath = (Join-Path $PSScriptRoot 'config.json')
 )
 
@@ -176,8 +193,9 @@ $Finder   = Join-Path $PSScriptRoot 'Find-ModUpdates.ps1'
 $Upgrader = Join-Path $PSScriptRoot 'Invoke-DarktideUpgrade.ps1'
 $BuildState = Join-Path $PSScriptRoot 'Get-DarktideBuildState.ps1'
 $Differ   = Join-Path $PSScriptRoot 'Compare-DarktideLoadout.ps1'
+$Blamer   = Join-Path $PSScriptRoot 'Get-DarktideErrors.ps1'
 
-foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Upgrader, $BuildState, $Differ)) {
+foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Upgrader, $BuildState, $Differ, $Blamer)) {
     if (-not (Test-Path -LiteralPath $s)) { throw "Missing script: $s" }
 }
 
@@ -218,6 +236,15 @@ if ($Verb -eq 'diff') {
 if ($Verb -eq 'lock' -and $SyncIdsFromMap) {
     Write-Head 'Syncing lockfile Nexus ids from mods-map'
     & $Locker -SyncIdsFromMap
+    return
+}
+
+# 'errors' only reads the console logs. config.json is optional - the script reads it
+# if it is there, for staging names and ConsoleLogDir - so it works on a machine that
+# never ran init, or on logs someone sent you with -LogDir.
+if ($Verb -eq 'errors') {
+    Write-Head 'Reading the game console logs'
+    & $Blamer -ConfigPath $ConfigPath -LogDir $LogDir -Last $Last -OutFile $OutFile -Force:$Force
     return
 }
 
