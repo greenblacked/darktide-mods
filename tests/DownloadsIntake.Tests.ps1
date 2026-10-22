@@ -262,6 +262,26 @@ Describe 'Test-DownloadedMods (intake)' {
             $res.Code | Should -Be 0
             (Get-Row $res.Doc 'Alpha Mod-447-2-0-0-1719209900.zip').mod | Should -Be 'alpha_mod'
         }
+
+        It 'does not call the legitimate zip safe to delete when an impostor outranks it' {
+            $null = New-ModZip -Dir $script:Downloads -Name 'Delta-700-1-0-0-1719209900.zip' -Mod 'delta_mod' -Version '1.0.0'
+            $res = Get-IntakeJson
+            $r = Get-Row $res.Doc 'Delta-700-1-0-0-1719209900.zip'
+            $r.status | Should -Be 'SUPERSEDED'
+            $r.note   | Should -Not -Match 'Safe to delete'
+            $r.note   | Should -Match 'Keep this one'
+            $res.Code | Should -Be 1
+        }
+
+        It 'says update skips both when two zips of one mod have no version' {
+            $null = New-ModZip -Dir $script:Downloads -Name 'zeta-copy.zip' -Mod 'zeta_mod' -Version ''
+            $rows = @((Get-IntakeJson).Doc.archives | Where-Object { $_.mod -eq 'zeta_mod' })
+            $rows.Count | Should -Be 2
+            $lose = @($rows | Where-Object { $_.status -eq 'SUPERSEDED' })
+            $lose.Count   | Should -Be 1
+            $lose[0].note | Should -Match 'skips both'
+            $lose[0].note | Should -Not -Match 'update uses'
+        }
     }
 
     Context 'read-only' {

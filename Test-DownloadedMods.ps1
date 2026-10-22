@@ -27,7 +27,8 @@
                             skips these without saying so
         VERSION-UNKNOWN     renamed file and no info.json; update skips it (unless -Force)
         SUPERSEDED          another zip for the same mod wins (newer, or the same
-                            version downloaded twice); safe to delete
+                            version downloaded twice); safe to delete, unless the
+                            winner carries a different Nexus id
 
     Then MISSING: mods in the lockfile that are not staged and have no archive here,
     with their Nexus page, so you know what is left to download.
@@ -571,6 +572,15 @@ foreach ($c in $candidates) {
 
     if (-not $isWinner) {
         $c.Status = 'SUPERSEDED'
+        $winnerMismatch = $winner.NexusModId -and $expected.Id -and $winner.NexusModId -ne $expected.Id
+        if ($winnerMismatch) {
+            $c.Note = "outranked by '$($winner.File)', which carries a different Nexus id ($($winner.NexusModId)). Keep this one until that is sorted out."
+            continue
+        }
+        if (-not $winner.ArchiveVersion) {
+            $c.Note = "its version is unknown, and so is that of '$($winner.File)'; update skips both without -Force."
+            continue
+        }
         $why = if (-not $c.ArchiveVersion) {
             'its version is unknown'
         } elseif ((Compare-ModVersion $c.ArchiveVersion $winner.ArchiveVersion) -eq 0) {

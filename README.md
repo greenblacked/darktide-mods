@@ -446,7 +446,7 @@ It writes nothing, needs no key and no network.
 | `NOT-DMF` | No `.mod` file inside. `update` ignores it. |
 | `UNSUPPORTED-FORMAT` | `.7z` or `.rar`. `update` ignores these without saying so. |
 | `VERSION-UNKNOWN` | Renamed zip and no `info.json`. `update` skips it without `-Force`. |
-| `SUPERSEDED` | Another zip for the same mod wins, because it is newer or the same version downloaded twice. Safe to delete. |
+| `SUPERSEDED` | Another zip for the same mod wins, because it is newer or the same version downloaded twice. Safe to delete, unless the winning zip carries a different Nexus id (an `ID-MISMATCH`); then keep it. |
 
 A first run often shows `version-tracked: 0` in `status`. Nothing has been installed *by
 this tool* yet, so there is no recorded version to compare. The first `update -Apply`
