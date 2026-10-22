@@ -20,9 +20,12 @@
         .\darktide.ps1 loader     install or update the Darktide Mod Loader
         .\darktide.ps1 export     zip your whole loadout as a personal backup
         .\darktide.ps1 import     restore a loadout zip and deploy it
+        .\darktide.ps1 patchcheck after a game patch: is the loader patch still in
+                                  place, and what to run next
 
-    Everything is a dry run until you add -Apply, except 'status', 'check' and
-    'links' which never write anything, and 'lock' which always writes the
+    Everything is a dry run until you add -Apply, except 'status', 'check',
+    'links' and 'patchcheck' which never write anything (patchcheck -Remember
+    stores a baseline beside staging), and 'lock' which always writes the
     manifest. The dry-run default includes rollback and restore.
 
 .PARAMETER Verb
@@ -39,6 +42,11 @@
 
 .PARAMETER Apply
     Actually make changes. Without it you get a plan and nothing else.
+
+.PARAMETER Remember
+    With 'patchcheck': store the current game build and bundle database
+    fingerprint as the baseline the next check compares against. The file goes
+    beside the staging folder, never into the game folder.
 
 .EXAMPLE
     .\darktide.ps1 sync
@@ -64,13 +72,18 @@
     .\darktide.ps1 links
     Every mod and its Nexus page, so checking by hand is a list of links. No key,
     no network.
+
+.EXAMPLE
+    .\darktide.ps1 patchcheck
+    After a Fatshark patch: was the game updated since the loader was patched,
+    and what to run next. Exits 1 when something needs doing. Writes nothing.
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
     [ValidateSet('init', 'status', 'check', 'links', 'update', 'deploy', 'sync', 'rollback', 'restore',
-                 'lock', 'loader', 'export', 'import', 'help')]
+                 'lock', 'loader', 'export', 'import', 'help', 'patchcheck')]
     [string]   $Verb = 'help',
 
     [switch]   $Apply,
@@ -88,6 +101,7 @@ param(
     [string]   $Source,
     [string]   $GamePath,
     [switch]   $Deploy,
+    [switch]   $Remember,
     [string]   $ConfigPath = (Join-Path $PSScriptRoot 'config.json')
 )
 
@@ -107,8 +121,9 @@ $Importer = Join-Path $PSScriptRoot 'Import-DarktideLoadout.ps1'
 $Initer   = Join-Path $PSScriptRoot 'Initialize-DarktideConfig.ps1'
 $Loaderer = Join-Path $PSScriptRoot 'Install-DarktideLoader.ps1'
 $Finder   = Join-Path $PSScriptRoot 'Find-ModUpdates.ps1'
+$BuildState = Join-Path $PSScriptRoot 'Get-DarktideBuildState.ps1'
 
-foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder)) {
+foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $BuildState)) {
     if (-not (Test-Path -LiteralPath $s)) { throw "Missing script: $s" }
 }
 
@@ -331,6 +346,17 @@ switch ($Verb) {
         $alsoDeploy = if ($PSBoundParameters.ContainsKey('Deploy')) { [bool]$Deploy } else { $true }
         & $Importer -ConfigPath $ConfigPath -Path $Path -Apply:$Apply `
                     -Deploy:$alsoDeploy -Mirror:$Mirror -Force:$Force -Confirm:$false
+        return
+    }
+
+    'patchcheck' {
+        # Read-only apart from -Remember (a baseline beside staging) and -OutFile.
+        Write-Head 'Game build vs the mod loader patch'
+        & $BuildState -ConfigPath $ConfigPath -GamePath $GamePath -Remember:$Remember `
+                      -OutFile $OutFile -Force:$Force
+        # Passed on so a script can branch: 1 means something needs doing.
+        $code = if (Test-Path Variable:LASTEXITCODE) { $LASTEXITCODE } else { 0 }
+        if ($code) { exit $code }
         return
     }
 }
