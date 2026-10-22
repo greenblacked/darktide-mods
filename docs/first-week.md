@@ -19,15 +19,23 @@ into your `DownloadDir` before `loader -Apply`.
 ## Everyday update
 
 1. Download mod archives from Nexus into `DownloadDir`. Keep the default filenames.
-2. Close the game (`-Apply` refuses while `Darktide.exe` is running).
-3. Dry run, then apply:
+2. Close the game (applying is refused while `Darktide.exe` is running).
+3. Upgrade:
+
+```powershell
+.\darktide.ps1 upgrade
+```
+
+It shows one plan (which mods change in staging, whether the game folder changes) and asks `Apply this plan? [y/N]` once. A no writes nothing. A yes updates staging, deploys, refreshes the lockfile, and prints the backup names with the exact `restore` / `rollback` commands that undo it. Nothing to do means no question and exit code 0. Add `-Yes` to skip the question; a non-interactive session needs it.
+
+The same work as two commands, if you want to read the dry run on its own first:
 
 ```powershell
 .\darktide.ps1 sync
 .\darktide.ps1 sync -Apply
 ```
 
-`sync` is `update` then `deploy`, then a lockfile refresh. If update fails, deploy does not run. If deploy finishes with problems, the lockfile is not refreshed. Either way the exit code is non-zero.
+`sync` is `update` then `deploy`, then a lockfile refresh. If update fails, deploy does not run. If deploy finishes with problems, the lockfile is not refreshed. Either way the exit code is non-zero. `upgrade` stops at the same points.
 
 ## Undo
 
@@ -47,7 +55,7 @@ Details: [After a Darktide patch](../README.md#after-a-darktide-patch).
 
 ## Offline and downloads
 
-No API key → offline mode. Archives in `DownloadDir` are enough for `update` / `sync`.
+No API key → offline mode. Archives in `DownloadDir` are enough for `update` / `sync` / `upgrade`.
 
 Version *checking* with a Nexus API key is optional. Free accounts get HTTP 403 on Nexus download links, so this tool never auto-downloads archives. Premium does not change that here — you still download in the browser.
 
