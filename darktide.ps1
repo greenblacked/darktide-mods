@@ -8,6 +8,8 @@
         .\darktide.ps1 status     what is installed, staged and deployed
         .\darktide.ps1 check      what is outdated on Nexus (needs an API key)
         .\darktide.ps1 links      where to look for updates with no API key at all
+        .\darktide.ps1 links -Open
+                                  ...and open those Nexus pages in the browser
         .\darktide.ps1 update     install downloaded archives into staging
         .\darktide.ps1 deploy     push staging into the game folder
         .\darktide.ps1 sync       update + deploy; stops if either step fails
@@ -18,13 +20,27 @@
                                   copy Nexus ids from mods-map.json into the lockfile
         .\darktide.ps1 init       find the game automatically and write config.json
         .\darktide.ps1 loader     install or update the Darktide Mod Loader
+        .\darktide.ps1 loader -PatchOnly
+                                  re-apply the bundle patch after a game update
+        .\darktide.ps1 loader -RestoreBackup
+                                  put a previous loader back from loader_backups
         .\darktide.ps1 export     zip your whole loadout as a personal backup
         .\darktide.ps1 import     restore a loadout zip and deploy it
+        .\darktide.ps1 upgrade    the everyday loop: plan, ask once, then update +
+                                  deploy + lockfile, with the undo commands at the end
+        .\darktide.ps1 patchcheck after a game patch: is the loader patch still in
+                                  place, and what to run next
+        .\darktide.ps1 diff       how two loadouts differ: lockfile, export zip,
+                                  git:<rev> or current staging
+        .\darktide.ps1 errors     which mod most likely caused the last crash or error
         .\darktide.ps1 settings   back up or restore your mod settings file
 
-    Everything is a dry run until you add -Apply, except 'status', 'check' and
-    'links' which never write anything, and 'lock' which always writes the
-    manifest. The dry-run default includes rollback and restore.
+    Everything is a dry run until you add -Apply, except 'status', 'check',
+    'links', 'patchcheck' and 'diff' which never write anything (patchcheck
+    -Remember stores a baseline beside staging), 'lock' which always writes the
+    manifest, and 'upgrade', which shows its plan and asks before it writes
+    (answering no writes nothing). The dry-run default includes rollback and
+    restore.
 
 .PARAMETER Verb
     Which action to run. See above.
@@ -34,12 +50,55 @@
     any mod that has a `githubRepo` in mods-map.json. Off by default, because
     the rest of 'links' needs no network.
 
+.PARAMETER Open
+    With 'links': after printing the list, open each selected mod's Nexus page in
+    the browser. Pages are built from the lockfile's numeric modId only, never its
+    free-text url. Opens nothing if there are more than 10 pages; narrow with -Only
+    (Find-ModUpdates.ps1 -OpenLimit raises the cap). With -CheckGitHub, only mods
+    whose GitHub release differs are opened.
+
 .PARAMETER SyncIdsFromMap
     With 'lock': copy non-null modId/url values from mods-map.json into the
     existing lockfile. Does not need ModsRoot or a full regenerate.
 
 .PARAMETER Apply
     Actually make changes. Without it you get a plan and nothing else.
+    'upgrade' does not use it: its question is the gate, and -Yes answers it.
+
+.PARAMETER Yes
+    With 'upgrade': apply the plan without asking 'Apply this plan? [y/N]'. Needed
+    in a non-interactive session, where upgrade refuses rather than wait.
+
+.PARAMETER PatchOnly
+    With 'loader': re-apply the bundle patch with the dtkit-patch.exe already in the
+    game folder, after a Steam update replaced the bundle database. No download, no
+    file copy, never the toggle. Does nothing if the database is still the one it
+    patched last time.
+
+.PARAMETER RestoreBackup
+    With 'loader': put a previous loader back from loader_backups. The dry run lists
+    the backups; -BackupSet picks one by part of its name, otherwise the newest.
+
+.PARAMETER Remember
+    With 'patchcheck': store the current game build and bundle database
+    fingerprint as the baseline the next check compares against. The file goes
+    beside the staging folder, never into the game folder.
+
+.PARAMETER Left
+    With 'diff': the baseline loadout. A lockfile, an export zip, git:<rev> or
+    current. Defaults to the repository lockfile.
+
+.PARAMETER Right
+    With 'diff': the loadout to compare with it. Same forms as -Left. Defaults to
+    current, the staging folder as it is now. Only 'current' needs config.json.
+
+.PARAMETER LogDir
+    With 'errors': the folder holding Darktide's console logs. Defaults to
+    ConsoleLogDir in config.json, then %APPDATA%\Fatshark\Darktide\console_logs.
+    With -LogDir, 'errors' needs no config.json at all.
+
+.PARAMETER Last
+    With 'errors': how many of the newest console logs to read. Default 1.
 
 .PARAMETER BackupSet
     With 'rollback' or 'restore': which backup set to restore. With 'settings':
@@ -67,9 +126,37 @@
     Restores the newest deploy backup into the game mods folder.
 
 .EXAMPLE
+    .\darktide.ps1 loader -PatchOnly -Apply
+    Mods stopped loading after a Darktide update: re-patch the bundle database.
+
+.EXAMPLE
     .\darktide.ps1 links
     Every mod and its Nexus page, so checking by hand is a list of links. No key,
     no network.
+
+.EXAMPLE
+    .\darktide.ps1 upgrade
+    Show what update and deploy would do as one plan, ask once, then apply it and
+    print the backup names and the commands that undo it.
+
+.EXAMPLE
+    .\darktide.ps1 patchcheck
+    After a Fatshark patch: was the game updated since the loader was patched,
+    and what to run next. Exits 1 when something needs doing. Writes nothing.
+
+.EXAMPLE
+    .\darktide.ps1 diff
+    How staging differs from the committed lockfile. Exits 0 when identical, 1 when
+    not. Add -Left git:HEAD~1 -Right git:HEAD, or a loadout zip, to compare others.
+
+.EXAMPLE
+    .\darktide.ps1 errors -Last 2 -OutFile errors.md
+    Reads the two newest console logs and names the mods most likely behind their
+    errors. Read-only; the report goes to errors.md as well.
+
+.EXAMPLE
+    .\darktide.ps1 links -Open -Only markers_aio,scoreboard
+    The same list, then those two mods' Nexus pages open in the browser.
 
 .EXAMPLE
     .\darktide.ps1 settings -Apply
@@ -81,7 +168,7 @@
 param(
     [Parameter(Position = 0)]
     [ValidateSet('init', 'status', 'check', 'links', 'update', 'deploy', 'sync', 'rollback', 'restore',
-                 'lock', 'loader', 'export', 'import', 'help', 'settings')]
+                 'lock', 'loader', 'export', 'import', 'help', 'upgrade', 'patchcheck', 'diff', 'errors', 'settings')]
     [string]   $Verb = 'help',
 
     [switch]   $Apply,
@@ -99,6 +186,16 @@ param(
     [string]   $Source,
     [string]   $GamePath,
     [switch]   $Deploy,
+    [switch]   $Yes,
+    [switch]   $PatchOnly,
+    [switch]   $RestoreBackup,
+    [switch]   $Remember,
+    [string]   $Left,
+    [string]   $Right,
+    [string]   $LogDir,
+    [ValidateRange(1, 1000)]
+    [int]      $Last = 1,
+    [switch]   $Open,
     [string]   $ConfigPath = (Join-Path $PSScriptRoot 'config.json')
 )
 
@@ -118,9 +215,13 @@ $Importer = Join-Path $PSScriptRoot 'Import-DarktideLoadout.ps1'
 $Initer   = Join-Path $PSScriptRoot 'Initialize-DarktideConfig.ps1'
 $Loaderer = Join-Path $PSScriptRoot 'Install-DarktideLoader.ps1'
 $Finder   = Join-Path $PSScriptRoot 'Find-ModUpdates.ps1'
+$Upgrader = Join-Path $PSScriptRoot 'Invoke-DarktideUpgrade.ps1'
+$BuildState = Join-Path $PSScriptRoot 'Get-DarktideBuildState.ps1'
+$Differ   = Join-Path $PSScriptRoot 'Compare-DarktideLoadout.ps1'
+$Blamer   = Join-Path $PSScriptRoot 'Get-DarktideErrors.ps1'
 $SettingsBackup = Join-Path $PSScriptRoot 'Backup-DarktideSettings.ps1'
 
-foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $SettingsBackup)) {
+foreach ($s in @($Updater, $Deployer, $Locker, $Exporter, $Importer, $Initer, $Loaderer, $Finder, $Upgrader, $BuildState, $Differ, $Blamer, $SettingsBackup)) {
     if (-not (Test-Path -LiteralPath $s)) { throw "Missing script: $s" }
 }
 
@@ -142,14 +243,38 @@ if ($Verb -eq 'help') {
 # someone with no API key is exactly the person least likely to have finished setup.
 if ($Verb -eq 'links') {
     Write-Head 'Where to check for updates'
-    & $Finder -CheckGitHub:$CheckGitHub -Only $Only -Skip $Skip -OutFile $OutFile
+    # Reset first: the finder only sets an exit code when it fails, so a code left by
+    # an earlier command would otherwise be passed on as this verb's result.
+    $global:LASTEXITCODE = 0
+    & $Finder -CheckGitHub:$CheckGitHub -Only $Only -Skip $Skip -OutFile $OutFile -Open:$Open
+    if ($LASTEXITCODE) { exit $LASTEXITCODE }
     return
+}
+
+# 'diff' compares lockfiles and writes nothing but an optional -OutFile. Only a
+# 'current' side needs config.json (for ModsRoot), and the script reads it only
+# then, so comparing two lockfiles, zips or git revisions works before 'init'.
+# The exit code is the answer - 0 identical, 1 different - so pass it on.
+if ($Verb -eq 'diff') {
+    Write-Head 'Comparing loadouts'
+    & $Differ -Left $Left -Right $Right -ConfigPath $ConfigPath -OutFile $OutFile -Force:$Force
+    $code = if (Test-Path Variable:LASTEXITCODE) { $LASTEXITCODE } else { 0 }
+    exit $code
 }
 
 # SyncIdsFromMap only touches the lockfile and mods-map.json - no config, no ModsRoot.
 if ($Verb -eq 'lock' -and $SyncIdsFromMap) {
     Write-Head 'Syncing lockfile Nexus ids from mods-map'
     & $Locker -SyncIdsFromMap
+    return
+}
+
+# 'errors' only reads the console logs. config.json is optional - the script reads it
+# if it is there, for staging names and ConsoleLogDir - so it works on a machine that
+# never ran init, or on logs someone sent you with -LogDir.
+if ($Verb -eq 'errors') {
+    Write-Head 'Reading the game console logs'
+    & $Blamer -ConfigPath $ConfigPath -LogDir $LogDir -Last $Last -OutFile $OutFile -Force:$Force
     return
 }
 
@@ -289,20 +414,36 @@ switch ($Verb) {
     'sync' {
         Write-Head "Full sync: update staging, then deploy$(if (-not $Apply) { ' (dry run)' })"
 
+        # $LASTEXITCODE is global and only a native command or an 'exit' sets it, so a
+        # value left over from anything run earlier in this session would read as this
+        # step failing. The updater runs no native commands; its 'exit 1' is the signal.
+        # (Setting it here also keeps StrictMode happy in a fresh session.)
+        $global:LASTEXITCODE = 0
         & $Updater -ConfigPath $ConfigPath -NoApi -Apply:$Apply -Force:$Force -Only $Only -Skip $Skip
-        # $LASTEXITCODE may be undefined in a fresh session, which StrictMode treats as an error.
-        $code = if (Test-Path Variable:LASTEXITCODE) { $LASTEXITCODE } else { 0 }
-        if ($code -and $code -ne 0) { throw 'Update step failed - not deploying.' }
+        if ($LASTEXITCODE -ne 0) { throw 'Update step failed - not deploying.' }
 
+        # Not $LASTEXITCODE for the deploy: robocopy leaves 1 ('files copied') in it after
+        # a good deploy, the same value as the script's own 'exit 1' for a bad one. A
+        # failed deploy either throws or reaches 'exit 1' without printing 'Deploy OK.',
+        # so that line is the success signal. -InformationVariable collects the deploy's
+        # Write-Host records and they still reach the console. A dry run returns before
+        # the post-checks and refreshes nothing, so only -Apply needs the signal.
+        $deployLog = $null
         & $Deployer -ConfigPath $ConfigPath -Apply:$Apply -Mirror:$Mirror `
-                    -InstallLoader:$InstallLoader -RunToggle:$RunToggle -Force:$Force
-        $code = if (Test-Path Variable:LASTEXITCODE) { $LASTEXITCODE } else { 0 }
-        if ($code -and $code -ne 0) { throw 'Deploy step finished with problems - lockfile not refreshed.' }
+                    -InstallLoader:$InstallLoader -RunToggle:$RunToggle -Force:$Force `
+                    -InformationVariable deployLog
 
         if ($Apply) {
+            $deployOk = @($deployLog | Where-Object { "$($_.MessageData)".Trim() -eq 'Deploy OK.' }).Count -gt 0
+            if (-not $deployOk) { throw 'Deploy step finished with problems - lockfile not refreshed.' }
+
+            # Hashed, not -NoHash: contentSha256 is what lets the lockfile show that an
+            # installed mod has drifted, and -NoHash writes null over every one of them.
             Write-Head 'Refreshing lockfile'
-            & $Locker -ModsRoot $modsRoot -NoHash
+            & $Locker -ModsRoot $modsRoot
         }
+        # Do not hand robocopy's leftover 1 to whoever called this.
+        $global:LASTEXITCODE = 0
         return
     }
 
@@ -338,8 +479,12 @@ switch ($Verb) {
     }
 
     'loader' {
-        Write-Head "Mod loader$(if (-not $Apply) { ' (dry run)' })"
-        & $Loaderer -ConfigPath $ConfigPath -Source $Source -Apply:$Apply -Force:$Force -Confirm:$false
+        $what = if ($PatchOnly) { 'Re-patching the bundle database' }
+                elseif ($RestoreBackup) { 'Restoring a mod loader backup' }
+                else { 'Mod loader' }
+        Write-Head "$what$(if (-not $Apply) { ' (dry run)' })"
+        & $Loaderer -ConfigPath $ConfigPath -Source $Source -Apply:$Apply -Force:$Force `
+                    -PatchOnly:$PatchOnly -RestoreBackup:$RestoreBackup -BackupSet $BackupSet -Confirm:$false
         return
     }
 
@@ -353,6 +498,29 @@ switch ($Verb) {
         $alsoDeploy = if ($PSBoundParameters.ContainsKey('Deploy')) { [bool]$Deploy } else { $true }
         & $Importer -ConfigPath $ConfigPath -Path $Path -Apply:$Apply `
                     -Deploy:$alsoDeploy -Mirror:$Mirror -Force:$Force -Confirm:$false
+        return
+    }
+
+    'upgrade' {
+        Write-Head 'Upgrade: plan, one question, then update + deploy + lockfile'
+        if ($Apply) {
+            Write-Warn 'upgrade asks before it writes, so -Apply changes nothing here. Pass -Yes to skip the question.'
+        }
+        & $Upgrader -ConfigPath $ConfigPath -Yes:$Yes -Confirm:$false
+        # The script always ends with an explicit exit code; pass a failure on.
+        $code = if (Test-Path Variable:LASTEXITCODE) { $LASTEXITCODE } else { 0 }
+        if ($code -ne 0) { exit 1 }
+        return
+    }
+
+    'patchcheck' {
+        # Read-only apart from -Remember (a baseline beside staging) and -OutFile.
+        Write-Head 'Game build vs the mod loader patch'
+        & $BuildState -ConfigPath $ConfigPath -GamePath $GamePath -Remember:$Remember `
+                      -OutFile $OutFile -Force:$Force
+        # Passed on so a script can branch: 1 means something needs doing.
+        $code = if (Test-Path Variable:LASTEXITCODE) { $LASTEXITCODE } else { 0 }
+        if ($code) { exit $code }
         return
     }
 }
