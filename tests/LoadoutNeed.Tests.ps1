@@ -194,6 +194,28 @@ Describe 'Get-LoadoutGap (need)' {
         }
     }
 
+    Context 'folder names with brackets' {
+
+        It 'matches a bracketed folder as PRESENT and lists it in their load order' {
+            # Brackets are wildcards to -Path, so this fails if a lookup ever stops
+            # using -LiteralPath or plain string matching.
+            $sub = Join-Path $script:Root 'brackets'
+            [void] [System.IO.Directory]::CreateDirectory($sub)
+            $staging = New-FakeStaging -Root $sub -Mods @('[bracket] mod')
+            $f = New-FriendLock -Root $script:Root -Name 'bracket.lock.json' -LoadOrder @('[bracket] mod') -Mods @(
+                (New-Mod -Folder '[bracket] mod' -ModId 600 -Version '1.0.0')
+            )
+
+            $r = Invoke-Gap -LockPath $f -Staging $staging -Out $script:Out
+
+            (Get-Row $r.Data '[bracket] mod')[0].status | Should -Be 'PRESENT'
+            @($r.Data.loadOrder | ForEach-Object { "$($_.position):$($_.folder):$($_.status)" }) -join ' ' |
+                Should -Be '1:[bracket] mod:PRESENT'
+            $r.Data.counts.missing | Should -Be 0
+            $r.Code | Should -Be 0
+        }
+    }
+
     Context 'DIFFERENT versus unknown' {
 
         It 'treats a missing version on either side as unknown, not different' {
